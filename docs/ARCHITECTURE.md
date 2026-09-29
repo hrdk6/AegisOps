@@ -344,6 +344,10 @@ erDiagram
   reconcile errors.
 - OTel traces across API, engine and controller (`incident.investigate`, `incident.execute`,
   `incident.verify`, `RemediationAction.apply`, and HTTP spans).
+- Two provisioned Grafana dashboards: *ShopFlow — Golden Signals* (rate, errors, latency,
+  saturation, DB pools, dependency latency, error logs) and *AegisOps — Control Plane*
+  (anomalies, incidents, policy decisions by outcome and risk, action transitions and
+  execution time, simulation and canary verdicts, circuit breaker, model calls, tokens and cost).
 - `GET /api/v1/system/health` probes every dependency; the dashboard's System page shows it.
 - Graceful degradation: when Prometheus, Loki, Jaeger, the controller or the model provider is
   unavailable, the engine records the gap, lowers what it can conclude, and fails closed on

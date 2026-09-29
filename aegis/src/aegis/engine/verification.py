@@ -49,6 +49,20 @@ def badness(s: ServiceSignals | None, slos: SLOBook) -> float:
     return round(score, 4)
 
 
+def slo_anomalies(s: ServiceSignals, slos: SLOBook) -> list[str]:
+    """Anomalies that mean an SLO is (still) violated. A latency flag raised only because p95 is
+    several times its historical baseline, while still inside the SLO, is an early-warning
+    heuristic of the detector, not a violation: after a traffic surge is absorbed by scaling,
+    latency legitimately settles above the old baseline."""
+    slo = slos.get(s.service)
+    out = []
+    for a in s.anomalies:
+        if a.signal == "latency_p95" and s.p95_ms is not None and s.p95_ms <= slo.p95_ms:
+            continue
+        out.append(a.signal)
+    return out
+
+
 def checks_for(service: str, before: ServiceSignals | None, after: ServiceSignals | None,
                slos: SLOBook) -> list[VerificationCheck]:
     slo = slos.get(service)
@@ -72,9 +86,11 @@ def checks_for(service: str, before: ServiceSignals | None, after: ServiceSignal
                                  detail=f"cpu {after.cpu_util}, mem {after.mem_util}"))
     out.append(VerificationCheck(name="stability", service=service, passed=not after.crashloop_pods and not after.oom_recent,
                                  detail=f"crashloop pods {after.crashloop_pods}, OOM {after.oom_recent}"))
-    anomalies = [a.signal for a in after.anomalies]
+    anomalies = slo_anomalies(after, slos)
+    advisory = sorted({a.signal for a in after.anomalies} - set(anomalies))
     out.append(VerificationCheck(name="no_active_anomalies", service=service, passed=not anomalies,
-                                 detail=", ".join(anomalies) or "none"))
+                                 detail=(", ".join(anomalies) or "none")
+                                 + (f" (within SLO but above baseline: {', '.join(advisory)})" if advisory else "")))
     return out
 
 
@@ -93,7 +109,7 @@ class Verifier:
         while time.monotonic() - t0 < self.timeout_s:
             await self.detector.next_cycle(timeout=15)
             latest = self.detector.latest
-            ok = all(latest.get(s) is not None and not latest[s].anomalies for s in services)
+            ok = all(latest.get(s) is not None and not slo_anomalies(latest[s], self.slos) for s in services)
             if time.monotonic() - t0 >= self.min_settle_s:
                 streak = streak + 1 if ok else 0
                 if streak >= HEALTHY_STREAK:

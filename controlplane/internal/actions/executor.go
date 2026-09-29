@@ -61,6 +61,9 @@ type deploymentSnapshot struct {
 	Replicas  int32                  `json:"replicas"`
 	Paused    bool                   `json:"paused"`
 	Template  corev1.PodTemplateSpec `json:"template"`
+	// Ready replicas when the snapshot was taken: a revert that restores an already
+	// unhealthy state is reported as restored-but-unhealthy, not as a failed revert.
+	ReadyReplicas int32 `json:"readyReplicas"`
 }
 
 type configSnapshot struct {
@@ -68,6 +71,10 @@ type configSnapshot struct {
 	ConfigMap  string             `json:"configMap"`
 	Data       map[string]string  `json:"data"`
 	Revision   string             `json:"revision"`
+	// RestoreRevision is the concrete revision update_config will write, resolved once when the
+	// snapshot is taken. Resolving "previous" at apply time is not idempotent: the action's own
+	// write appends to the history, so a re-apply would resolve "previous" to the faulty data.
+	RestoreRevision string `json:"restoreRevision,omitempty"`
 }
 
 type podSnapshot struct {
@@ -105,7 +112,8 @@ func (x *Executor) deployment(ctx context.Context, ns, name string) (*appsv1.Dep
 }
 
 func snapDeployment(d *appsv1.Deployment) deploymentSnapshot {
-	s := deploymentSnapshot{Namespace: d.Namespace, Name: d.Name, Paused: d.Spec.Paused, Template: *d.Spec.Template.DeepCopy()}
+	s := deploymentSnapshot{Namespace: d.Namespace, Name: d.Name, Paused: d.Spec.Paused, Template: *d.Spec.Template.DeepCopy(),
+		ReadyReplicas: d.Status.ReadyReplicas}
 	if d.Spec.Replicas != nil {
 		s.Replicas = *d.Spec.Replicas
 	}
@@ -158,8 +166,12 @@ func (x *Executor) Snapshot(ctx context.Context, a *v1.RemediationAction) (*v1.S
 		if err := x.Client.Get(ctx, client.ObjectKey{Namespace: t.Namespace, Name: a.Spec.Parameters.ConfigMap}, &cm); err != nil {
 			return nil, err
 		}
+		target, err := x.History.Resolve(ctx, t.Namespace, a.Spec.Parameters.ConfigMap, a.Spec.Parameters.ConfigRevision)
+		if err != nil {
+			return nil, err
+		}
 		return encode(SnapConfig, true, configSnapshot{Deployment: snapDeployment(d), ConfigMap: cm.Name,
-			Data: cm.Data, Revision: history.DataHash(cm.Data)}, now)
+			Data: cm.Data, Revision: history.DataHash(cm.Data), RestoreRevision: target.Revision}, now)
 	case v1.ActionRestartPod, v1.ActionIsolatePod:
 		var pod corev1.Pod
 		if err := x.Client.Get(ctx, client.ObjectKey{Namespace: t.Namespace, Name: t.Name}, &pod); err != nil {
@@ -328,7 +340,14 @@ func (x *Executor) Apply(ctx context.Context, a *v1.RemediationAction, original 
 		})
 
 	case v1.ActionUpdateConfig:
-		version, err := x.History.Resolve(ctx, t.Namespace, p.ConfigMap, p.ConfigRevision)
+		revision := p.ConfigRevision
+		if a.Status.Snapshot != nil {
+			var snap configSnapshot
+			if err := json.Unmarshal([]byte(a.Status.Snapshot.Data), &snap); err == nil && snap.RestoreRevision != "" {
+				revision = snap.RestoreRevision // pinned when the snapshot was taken; makes re-apply idempotent
+			}
+		}
+		version, err := x.History.Resolve(ctx, t.Namespace, p.ConfigMap, revision)
 		if err != nil {
 			return "", err
 		}
@@ -564,7 +583,14 @@ func (x *Executor) Check(ctx context.Context, a *v1.RemediationAction, original 
 				return Progress{Message: "waiting for quarantined pod deletion"}, err
 			}
 		}
-		return x.checkDeployment(ctx, t.Namespace, deploymentOf(t, original), startedAt(a))
+		prog, err := x.checkDeployment(ctx, t.Namespace, deploymentOf(t, original), startedAt(a))
+		if err == nil && prog.Failed && original != nil && wasUnhealthy(original.Status.Snapshot) {
+			// The revert put back exactly what was there before the reverted action, which was
+			// already failing. The revert did its job; the incident is not fixed and escalates.
+			return Progress{Done: true, Message: "restored the pre-action state, which was already unhealthy before the " +
+				"reverted action (" + prog.Message + ")"}, nil
+		}
+		return prog, err
 	default:
 		return x.checkDeployment(ctx, t.Namespace, t.Name, startedAt(a))
 	}
@@ -580,22 +606,71 @@ func (x *Executor) checkDeployment(ctx context.Context, ns, name string, since t
 		return Progress{Failed: true, Message: msg}, nil
 	}
 	if !done {
-		// Fail fast when the new ReplicaSet's pods are crash-looping.
-		rss, err := x.Resolver.OwnedReplicaSets(ctx, d)
-		if err == nil && len(rss) > 0 {
-			newest := rss[0].Labels["pod-template-hash"]
-			pods, err := x.Resolver.PodsFor(ctx, d)
-			if err == nil {
-				for _, p := range pods {
-					ps := state.PodSummary(p)
-					if ps.PodTemplateHash == newest && ps.WaitingReason == "CrashLoopBackOff" && ps.Restarts >= 3 {
-						return Progress{Failed: true, Message: fmt.Sprintf("new pod %s is crash-looping (%d restarts)", p.Name, ps.Restarts)}, nil
-					}
-				}
-			}
+		if p := x.crashLoopingNewPod(ctx, d, since); p != "" {
+			return Progress{Failed: true, Message: p}, nil
 		}
 	}
 	return Progress{Done: done, Message: msg}, nil
+}
+
+// crashLoopingNewPod reports a crash-looping pod that this rollout created, if any. Only the
+// ReplicaSet of the Deployment's *current* revision counts, and only once the Deployment
+// controller has observed the new spec: a fix that returns to an older template re-activates an
+// older ReplicaSet, so "most recently created ReplicaSet" would point at the faulty one and its
+// crashing pods. Pods created before the action started are pre-existing damage, not its effect.
+func (x *Executor) crashLoopingNewPod(ctx context.Context, d *appsv1.Deployment, since time.Time) string {
+	if d.Status.ObservedGeneration < d.Generation {
+		return ""
+	}
+	rss, err := x.Resolver.OwnedReplicaSets(ctx, d)
+	if err != nil {
+		return ""
+	}
+	current := ""
+	for i := range rss {
+		if state.Revision(&rss[i]) == state.Revision(d) {
+			current = rss[i].Labels["pod-template-hash"]
+		}
+	}
+	if current == "" {
+		return ""
+	}
+	pods, err := x.Resolver.PodsFor(ctx, d)
+	if err != nil {
+		return ""
+	}
+	for _, p := range pods {
+		ps := state.PodSummary(p)
+		if ps.PodTemplateHash == current && !p.CreationTimestamp.Time.Before(since) &&
+			ps.WaitingReason == "CrashLoopBackOff" && ps.Restarts >= 3 {
+			return fmt.Sprintf("new pod %s is crash-looping (%d restarts)", p.Name, ps.Restarts)
+		}
+	}
+	return ""
+}
+
+// wasUnhealthy reports whether a Deployment snapshot was taken while replicas were not ready.
+func wasUnhealthy(snap *v1.Snapshot) bool {
+	if snap == nil {
+		return false
+	}
+	// Pointers distinguish "0 ready" from snapshots taken before readiness was recorded.
+	type health struct {
+		Replicas      int32  `json:"replicas"`
+		ReadyReplicas *int32 `json:"readyReplicas"`
+	}
+	var s struct {
+		health
+		Deployment *health `json:"deployment"`
+	}
+	if json.Unmarshal([]byte(snap.Data), &s) != nil {
+		return false
+	}
+	h := s.health
+	if s.Deployment != nil {
+		h = *s.Deployment
+	}
+	return h.ReadyReplicas != nil && *h.ReadyReplicas < h.Replicas
 }
 
 // startedAt is when the action began executing (zero if unknown, which considers every condition).

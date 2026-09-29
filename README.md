@@ -62,6 +62,22 @@ If verification had shown no improvement, the controller would have restored the
 the engine would have planned a different remedy (up to 3 rounds), or escalated to a human
 with the reason.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Overview: live dependency map, active incident, service SLO table](docs/images/overview.png) | ![Automation and policy: modes, approvals, guardrails, circuit breaker](docs/images/automation.png) |
+| **Overview.** Live dependency map, active incidents, per-service SLO signals | **Automation and policy.** Signed mode changes, approval queue, guardrails, protected workloads |
+
+![Incident detail: lifecycle rail, diagnosis with cited evidence, candidates, sandbox comparison, verification, timeline](docs/images/incident.png)
+
+**Incident detail** (flagship scenario, recorded live): lifecycle rail, diagnosis with cited
+evidence, every candidate with its policy dry run, sandbox comparison, verification table,
+evidence explorer and timeline. More: [a human-approved remediation](docs/images/approval-history.png)
+(redis is a protected workload), [service view](docs/images/service.png),
+[postmortem](docs/images/postmortem.png), [benchmark run](docs/images/evaluation.png),
+[demo scenarios](docs/images/demo.png).
+
 ## Highlights
 
 - **Deterministic safety core.** A pure-function policy engine in Go covers the action
@@ -154,7 +170,32 @@ The live benchmark runs every scenario end to end in the real environment. It re
 waits for 60s of health, injects, lets AegisOps handle the incident, then scores it. The
 method, metric definitions and threats to validity are in [docs/EVALUATION.md](docs/EVALUATION.md).
 
-<!-- RESULTS -->
+Three complete live runs, each 21 scenarios × 1 repetition, on the deterministic path (no
+LLM configured), policy mode `autonomous`. Every number is observed; intervals are 95%
+(Wilson for rates).
+
+| | Run 1 (first complete run) | Run 2 (after fixing run 1's failures) | Run 3 (delivered code) |
+|---|---|---|---|
+| Scenario pass rate | 76% (16/21, CI 55–89%) | 95% (20/21, CI 77–99%) | **100% (21/21, CI 85–100%)** |
+| Root cause correct (top-1) | 84% (16/19) | 100% (19/19) | 100% (20/20) |
+| Remediation success | 80% (12/15) | 93% (14/15) | 100% (15/15) |
+| Unsafe or unacceptable actions executed | **0/21** | **0/21** | **0/21** |
+| Needed a human (approval) | 33% | 43% | 38% |
+| Median time to detect | 13.6s | 12.0s | 15.9s |
+| Median recovery (injection → verified) | 163s | 156s | 140s |
+| Calibration (Brier) | 0.126 | 0.052 | 0.053 |
+
+Each run surfaced defects that were fixed before the next: a config restore that re-broke the
+service on retry, a rollout check that failed correct fixes by looking at the old
+ReplicaSet, rules that blamed the previous incident's cleanup, and verification that
+confused "above baseline" with "violating SLO". All are documented as design decisions D17–D21,
+each with a regression test. The digital twin blocked wrong remedies, measured as making
+things worse (up to 100% errors), in all three runs.
+
+The later runs are *not* an independent test: the same 21 scenarios informed the fixes. Run
+1 is the fairer indication of a first encounter; run 3 shows the delivered code handles
+every scenario at least once. See [docs/EVALUATION.md](docs/EVALUATION.md) for the method,
+per-scenario tables, the unfiltered failure analysis and threats to validity.
 
 ## Safety model in one table
 
@@ -179,7 +220,7 @@ Full detail: [docs/SECURITY.md](docs/SECURITY.md) and [docs/THREAT_MODEL.md](doc
 | [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Assets, trust boundaries, STRIDE per boundary, residual risks |
 | [EVALUATION.md](docs/EVALUATION.md) | Benchmark method, metrics, statistics, reproduction, results |
 | [INCIDENT_SCENARIOS.md](docs/INCIDENT_SCENARIOS.md) | The 21 scenarios with ground truth |
-| [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | 16 decisions with alternatives and costs, including the ones forced by live testing |
+| [DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) | 21 decisions with alternatives and costs, including the ones forced by live testing and the benchmark |
 | [API.md](docs/API.md) | REST and SSE reference, roles, control-plane API |
 | [OPERATIONS.md](docs/OPERATIONS.md) | Modes, approvals, reading incidents, troubleshooting AegisOps itself |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, tests, layout, extending actions, rules and scenarios |
@@ -193,6 +234,9 @@ The main reasons are listed here; the full list is in the linked documents.
   controller API or the engine, and no multi-tenant isolation.
 - Rules cover the failure mechanisms we wrote rules for. Novel mechanisms are diagnosed as
   UNKNOWN and escalated rather than fixed.
+- The benchmark is 21 scenarios × 1 repetition, written by the same authors as the rules, and
+  the later runs were used to find and fix defects. Treat the 100% of run 3 as "works on each
+  known scenario once", not as a field success rate.
 - The digital twin reproduces code and configuration faults. It cannot reproduce network
   faults, real traffic mix or data-dependent bugs, so it never *proves* safety.
 - Model-assisted diagnosis is implemented and unit-tested with scripted providers. The

@@ -19,6 +19,10 @@ type Result = {
   };
 };
 
+function secs(v: number | null | undefined): string {
+  return v === null || v === undefined ? "–" : `${v.toFixed(1)}s`;
+}
+
 export default function EvaluationRunPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error } = useSWR<Run & { results: Result[] }>(`/api/v1/evaluations/${id}`, fetcher, { refreshInterval: 30000 });
@@ -87,13 +91,13 @@ export default function EvaluationRunPage() {
                     <td className="px-4 py-2"><Mono>{r.scenario_id}</Mono>{r.repetition > 1 && <span className="text-xs text-muted"> #{r.repetition}</span>}
                       {r.incident_id && <Link href={`/incidents/${r.incident_id}`} className="block text-xs text-muted hover:text-accent">{r.incident_id}</Link>}</td>
                     <td className="px-2 text-xs text-ink2">{humanize(m.fault_class)}</td>
-                    <td className="tabular px-2 text-right">{m.detected ? `${m.time_to_detect_s ?? "–"}s` : "no"}</td>
-                    <td className="px-2">{m.root_cause_correct === null ? <span className="text-muted">n/a</span>
+                    <td className="tabular px-2 text-right">{m.detected ? secs(m.time_to_detect_s) : "no"}</td>
+                    <td className="px-2">{m.root_cause_correct === null || !m.detected ? <span className="text-muted">n/a</span>
                       : <Chip tone={m.root_cause_correct ? "good" : "critical"}>{m.root_cause_correct ? "correct" : "wrong"}</Chip>}</td>
                     <td className="px-2 text-xs"><Mono>{m.actions_executed.join(", ") || "–"}</Mono>
                       {m.unsafe_action && <Chip tone="critical" className="ml-1">unsafe</Chip>}</td>
                     <td className="px-2 text-xs">{humanize(m.outcome)} <span className="text-muted">({m.outcome_expected.map(humanize).join(" / ")})</span></td>
-                    <td className="tabular px-2 text-right">{m.recovery_time_s !== null ? `${m.recovery_time_s}s` : "–"}</td>
+                    <td className="tabular px-2 text-right">{secs(m.recovery_time_s)}</td>
                     <td className="px-4"><Chip tone={r.passed ? "good" : "critical"}>{r.passed ? "pass" : "fail"}</Chip>
                       {!r.passed && m.notes?.length ? <p className="mt-1 max-w-xs text-xs text-muted">{m.notes.join("; ")}</p> : null}</td>
                   </tr>

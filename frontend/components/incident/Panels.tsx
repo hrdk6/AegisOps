@@ -80,7 +80,7 @@ export function RemediationPanel({ plan }: { plan: Plan }) {
                 <th className="py-2 pr-2 font-normal" aria-label="Selected" />
                 <th className="py-2 pr-3 font-normal">Action</th><th className="pr-3 font-normal">Target</th>
                 <th className="pr-3 font-normal">Parameters</th><th className="pr-3 font-normal">Risk</th>
-                <th className="pr-3 font-normal">Policy</th><th className="pr-3 text-right font-normal">P(success)</th>
+                <th className="pr-3 font-normal" title="Policy dry run at planning time, before any simulation">Policy (dry run)</th><th className="pr-3 text-right font-normal">P(success)</th>
                 <th className="text-right font-normal">Utility</th>
               </tr>
             </thead>

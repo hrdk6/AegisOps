@@ -221,3 +221,84 @@ against scenario-specific flags or service names.
 
 **Cost.** Some scenarios are ambiguous by design (a release that breaks configuration is both
 BAD_DEPLOYMENT and CONFIG_ERROR). The ground truth lists every acceptable category.
+
+---
+
+The following decisions were forced by the first complete live benchmark run
+(`live-20260929-010108-efd4`). Each has a regression test named after the failure.
+
+### D17. Controller progress checks judge only what the action created **(found in the benchmark)**
+
+**Decision.** A rollout counts as failed only if one of these holds:
+
+- a `ProgressDeadlineExceeded` condition was updated *after* the action started;
+- a pod of the ReplicaSet for the Deployment's *current* revision, created after the action
+  started, is crash-looping. This is checked only once the new spec has been observed.
+
+**Why.** Two remediations that were correct were marked failed within a second of starting.
+Rolling back or restoring resources re-activates an *older* ReplicaSet. The previous check
+took the most recently *created* ReplicaSet (the faulty one) and saw its crashing pods. In
+another case, the Deployment still carried the deadline condition from the bad release. The
+false failures triggered automatic reverts, which put the fault back.
+
+**Cost.** A genuinely stuck rollout is caught by the execution timeout rather than instantly
+by a stale condition.
+
+### D18. `update_config` pins the concrete revision when the snapshot is taken **(found in the benchmark)**
+
+**Decision.** `configRevision: previous` is resolved to a content hash once, before applying,
+and stored in the action's snapshot. Re-applies use the pinned hash.
+
+**Why.** "Previous" was resolved at apply time relative to a history that the action's own
+write extends. When the reconciler re-applied (normal crash-safe behaviour), "previous" had
+become the faulty configuration. The recorded history showed the fix at `01:17:41.427` and the
+fault written back 36 ms later.
+
+### D19. A revert that restores an already-unhealthy state is not a failed revert
+
+**Decision.** Deployment snapshots record ready replicas. A revert whose restored state was
+already unhealthy before the reverted action is reported as *restored, still unhealthy*, and
+the incident escalates. It is no longer reported as a revert failure.
+
+**Why.** The revert did exactly its job: it put back the pre-action state. Reporting it as
+failed made the benchmark's "rollback success" metric (0/2 in run 1) misleading, and
+suggested the controller had left the system in an unknown state.
+
+### D20. Diagnosis rules use weaker corroborating signals than alerting does **(found in the benchmark)**
+
+**Decision.** Five mechanism-level refinements:
+
+- Heavy CFS throttling (≥ 25% of periods) plus the service's own latency anomaly counts as
+  CPU saturation, even when *average* utilisation is moderate. Bursty load hits the limit.
+- A CPU-throttled caller's client-side latency is discounted as network evidence, because a
+  starved process inflates every outbound timing.
+- A resource change counts as misconfiguration only if something was *lowered*.
+- A change that re-activated a ReplicaSet which had run before, followed by more than 90s of
+  health, is treated as a rollback or reset, not as a regression-introducing release.
+- Connection-level transport errors (resets, unreachable, protocol errors; *not* read
+  timeouts, which starved services also produce) support a network hypothesis at a lower
+  client error ratio, but only if the dependency itself looks healthy.
+
+**Why.** Three of the five run-1 failures blamed the *previous* scenario's cleanup (a rollback
+or a resource reset) for an unrelated fault. The fourth missed a CPU-bound service whose
+average utilisation stayed under the paging threshold. Alert thresholds are tuned to avoid
+paging on noise. Diagnosis, which only runs once something is already wrong, can afford
+weaker signals when they agree.
+
+**Cost and caveat.** These rules were refined on run 1's evidence. Replaying run 1's captured
+bundles afterwards (19/19 top-1) is therefore a development-set number, not validation. The
+fresh live run reported in [EVALUATION.md](EVALUATION.md) is the relevant test.
+
+### D21. Verification judges SLOs, not early-warning heuristics **(found in the benchmark, run 2)**
+
+**Decision.** The "no active anomalies" verification check, and the healthy streak the
+verifier waits for, ignore a latency flag raised only because p95 is several times its
+historical baseline while still inside the SLO. That flag is reported as advisory.
+
+**Why.** In the traffic-surge scenario, one scale-up brought every SLO back (violation score
+0.17 → 0.00). Latency legitimately settled above the pre-surge baseline, so the flag stayed
+on. Verification reported PARTIAL, the engine scaled again, measured NO_EFFECT, reverted,
+and escalated an incident that had been fixed.
+
+**Cost.** A regression that stays under the SLO is no longer grounds for "not resolved". It
+still opens incidents: the detector keeps the baseline heuristic for detection.

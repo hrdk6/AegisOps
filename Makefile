@@ -2,7 +2,7 @@
 PY ?= python
 VENV ?= aegis/.venv
 
-.PHONY: up down deploy build status credentials dev test test-unit test-integration test-go test-frontend test-e2e lint crds benchmark
+.PHONY: up down deploy build status credentials dev test test-unit test-integration test-go test-frontend test-shopflow test-e2e lint crds benchmark
 
 up:            ## create kind cluster, build + load images, deploy, wait
 	$(PY) scripts/devctl.py up
@@ -22,13 +22,15 @@ dev:           ## local Python environment for the CLI and tests
 	uv pip install --python $(VENV) -e "aegis[dev,chaos]"
 	cd frontend && npm ci
 
-test: test-unit test-integration test-go test-frontend
+test: test-unit test-integration test-go test-frontend test-shopflow
 test-unit:
 	cd aegis && .venv/bin/python -m pytest -q tests/unit
 test-integration: ## needs Docker (starts a throwaway PostgreSQL) or AEGIS_TEST_DATABASE_URL
 	cd aegis && .venv/bin/python -m pytest -q tests/integration
 test-e2e:      ## needs the running kind environment and AEGIS_TOKEN
 	cd aegis && AEGIS_E2E=1 .venv/bin/python -m pytest -q tests/e2e
+test-shopflow: ## ShopFlow fault proxy and failure-mode tests (uses the aegis venv)
+	cd shopflow && ../aegis/.venv/bin/python -m pytest -q
 test-go:
 	cd controlplane && go vet ./... && go test ./...
 test-frontend:

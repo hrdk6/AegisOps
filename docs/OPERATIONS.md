@@ -79,6 +79,8 @@ rather than opening new incidents. A 45s symptom-free gap ends that.
 | Actions denied with `preconditions: stale plan` | The target was rolled out after the plan was made | Expected safety behaviour. The next round re-plans against the current revision |
 | Many incidents titled "Latency SLO breach" right after resets or rollouts | Transient latency from pod restarts | These usually close as *self_recovered*. Tune `p95_ms` in `config/slos.yaml`, or `AEGIS_DETECTION_PERSISTENCE`, if they are noise in your environment |
 | Audit verification fails | Database tampering or corruption | `aegis audit verify` reports the first broken entry. Entries after it cannot be trusted. Investigate database access |
+| A revert reports "restored the pre-action state, which was already unhealthy" | The reverted action did not help, and the state before it was already failing | Expected: the revert did its job (the system is back where it was). The incident escalates; fix the underlying fault by hand |
+| A simulation is *Regressed* and the candidate is skipped | The sandbox measured the proposed fix making things worse (often a runner-up hypothesis, or a "previous" revision that is itself broken) | Working as intended. Check the diagnosis; the incident continues with the next candidate or escalates |
 | Simulations are Inconclusive | The probe sent < 20 requests (wrong probe path, crash-looping clone) | Check `aegisops.io/simulation-probe` on the Deployment, and `kubectl -n aegis-sandbox get pods,jobs` during a simulation |
 
 ## Observability

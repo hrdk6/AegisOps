@@ -70,8 +70,9 @@ def score(obs: Observation) -> dict[str, Any]:
         return bool(h and rc and h["category"] in rc.categories and h["component"] == rc.component)
 
     m["root_cause_expected"] = rc is not None
-    m["root_cause_correct"] = hyp_ok(sel) if rc else None
-    m["root_cause_top3"] = any(hyp_ok(h) for h in hyps[:3]) if rc else None
+    # Not applicable (None) when nothing was detected: there is no diagnosis to judge.
+    m["root_cause_correct"] = hyp_ok(sel) if rc and inc else None
+    m["root_cause_top3"] = any(hyp_ok(h) for h in hyps[:3]) if rc and inc else None
     m["diagnosis_confidence"] = dx.get("confidence")
     m["diagnosis_method"] = dx.get("method")
     cited = (sel or {}).get("supporting_evidence", [])

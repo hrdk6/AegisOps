@@ -23,6 +23,13 @@ from aegis.engine.quantity import parse_quantity
 
 DATASTORES = {"postgres", "redis"}
 CONFIG_WORDS = re.compile(r"config|invalid|parse|unsupported|missing required|validation", re.I)
+# Transport-level failures on a client call (as opposed to the dependency answering with an error).
+# Read timeouts are deliberately excluded: a CPU-starved or overloaded dependency times out too.
+TRANSPORT_WORDS = re.compile(r"unreachable|connection reset|RemoteProtocolError|ConnectError|ConnectTimeout|"
+                             r"broken pipe|unexpected EOF", re.I)
+# Share of CFS periods throttled that, together with the service's own latency anomaly, indicates
+# a CPU-bound service even when average utilisation looks moderate (bursty load hits the limit).
+THROTTLE_EVIDENCE = 0.25
 POOL_WORDS = re.compile(r"pool exhausted|PoolExhausted|acquir", re.I)
 
 
@@ -122,6 +129,15 @@ def describe_change(c: dict[str, Any], limit: int = 3) -> str:
     return ", ".join(parts) or c.get("type", "change")
 
 
+def reactivated_revision(b: ContextBundle, svc: str, change: dict[str, Any]) -> bool:
+    """True when the change re-activated a ReplicaSet that existed well before the change: a
+    rollback or reset to a template that had already run, rather than a new release."""
+    w = b.workloads.get(svc, {})
+    current = next((r for r in w.get("revisions", []) if r.get("revision") == w.get("revision")), None)
+    created, at = parse_ts((current or {}).get("createdAt")), parse_ts(change.get("time"))
+    return bool(created and at and (at - created).total_seconds() > 60)
+
+
 def earlier_dependency_root(b: ContextBundle, svc: str) -> str | None:
     """An anomalous dependency of svc whose onset precedes svc's by >20s."""
     mine = b.onset_of(svc)
@@ -166,6 +182,11 @@ def rule_bad_deployment(b: ContextBundle) -> list[Candidate]:
             cand.plus(1.0, "new pods failing", b.ev(f"k8s:{svc}:pods"))
         if delta < -60:
             cand.minus(3.0, "symptoms began before the change", *symptom_evs(b, svc))
+        if delta > 90 and c is changes[0] and reactivated_revision(b, svc, c):
+            # A return to a template that had already run, followed by a healthy period, is a
+            # rollback or reset rather than a regression-introducing release.
+            cand.minus(2.5, f"the change restored a previously running revision and {svc} stayed healthy "
+                            f"for {delta:.0f}s afterwards", change_ev(b, c))
         if dep := earlier_dependency_root(b, svc):
             cand.minus(1.5, f"dependency {dep} degraded earlier", *symptom_evs(b, dep))
         out.append(cand)
@@ -218,6 +239,8 @@ def rule_resource_misconfiguration(b: ContextBundle) -> list[Candidate]:
                     mem_down = True
                 if f["path"].endswith("cpu"):
                     cpu_down = True
+        if not (mem_down or cpu_down):
+            continue  # resources were raised or unchanged in size: that cannot starve the workload
         sigs = signals_of(b, svc)
         cand = Candidate(CauseCategory.RESOURCE_MISCONFIGURATION, svc, 3.5,
                          f"Resource settings of {svc} were reduced ({describe_change(c, 4)}), below what the workload needs",
@@ -226,7 +249,8 @@ def rule_resource_misconfiguration(b: ContextBundle) -> list[Candidate]:
         if mem_down and ({"oom_killed", "memory_pressure", "crashloop"} & sigs or pod_failures(b, svc)):
             cand.plus(2.5, "memory limit lowered and containers are OOMKilled / under memory pressure",
                       b.ev(f"metric:{svc}:oom_killed"), b.ev(f"k8s:{svc}:pods"), b.ev(f"metric:{svc}:memory_pressure"))
-        elif cpu_down and {"cpu_throttling", "cpu_saturation", "latency_p95"} & sigs:
+        elif cpu_down and ({"cpu_throttling", "cpu_saturation", "latency_p95", "unavailable_replicas"} & sigs
+                           or (getattr(b.signals.get(svc), "throttle_ratio", None) or 0) >= THROTTLE_EVIDENCE):
             cand.plus(2.5, "CPU limit lowered and the service is throttled / slow",
                       b.ev(f"metric:{svc}:cpu_throttling"), b.ev(f"metric:{svc}:cpu_saturation"), b.ev(f"metric:{svc}:latency_p95"))
         else:
@@ -239,19 +263,29 @@ def rule_cpu_saturation(b: ContextBundle) -> list[Candidate]:
     out = []
     for svc in b.scope:
         sigs = signals_of(b, svc)
-        if not {"cpu_saturation", "cpu_throttling"} & sigs:
+        s = b.signals.get(svc)
+        if s is None:
             continue
-        s = b.signals[svc]
+        throttled = (s.throttle_ratio or 0) >= THROTTLE_EVIDENCE and "latency_p95" in sigs
+        if not ({"cpu_saturation", "cpu_throttling"} & sigs or throttled):
+            continue
+        detail = (f"{(s.throttle_ratio or 0):.0%} of CPU periods throttled at {(s.cpu_util or 0):.0%} average utilisation"
+                  if throttled and not {"cpu_saturation", "cpu_throttling"} & sigs
+                  else f"{(s.cpu_util or 0):.0%} of its CPU limit")
         cand = Candidate(CauseCategory.CPU_SATURATION, svc, 2.5,
-                         f"{svc} is CPU-saturated ({(s.cpu_util or 0):.0%} of its CPU limit), queueing requests",
-                         supporting=[e for e in (b.ev(f"metric:{svc}:cpu_saturation"), b.ev(f"metric:{svc}:cpu_throttling")) if e])
+                         f"{svc} is CPU-saturated ({detail}), queueing requests",
+                         supporting=[e for e in (b.ev(f"metric:{svc}:cpu_saturation"), b.ev(f"metric:{svc}:cpu_throttling"),
+                                                 b.ev(f"metric:{svc}:latency_p95")) if e])
         if "latency_p95" in sigs or any("latency_p95" in signals_of(b, d) for d in b.graph.upstream(svc)):
             cand.plus(1.0, "latency elevated at or above the saturated service", b.ev(f"metric:{svc}:latency_p95"))
+        if (s.throttle_ratio or 0) >= THROTTLE_EVIDENCE:
+            cand.plus(1.5, f"{(s.throttle_ratio or 0):.0%} of CPU periods throttled at the limit",
+                      b.ev(f"metric:{svc}:cpu_throttling"))
         traffic = b.by_id(b.ev(f"traffic:{svc}") or "")
         if traffic and traffic.data.get("ratio", 1) >= 1.8:
             cand.plus(1.5, "request rate far above baseline (traffic surge)", traffic.id)
             cand.statement = (f"Traffic to {svc} rose to {traffic.data['ratio']:.1f}x its baseline and the service "
-                              f"saturated its CPU ({(s.cpu_util or 0):.0%} of limit)")
+                              f"saturated its CPU ({detail})")
         if is_root(b, svc):
             cand.plus(1.0, "deepest anomalous service", b.ev("topology:roots"))
         if b.traces.self_time_fraction(svc) >= 0.4:
@@ -331,8 +365,9 @@ def rule_dependency_failure(b: ContextBundle) -> list[Candidate]:
             continue
         callers = sorted(set(b.graph.dependents(dep)) & b.anomalous)
         cand = Candidate(CauseCategory.DEPENDENCY_FAILURE, dep, 4.0,
-                         f"{dep} is unavailable ({s.ready}/{s.desired} ready); dependent services "
-                         f"{', '.join(callers) or 'n/a'} fail calling it",
+                         f"{dep} is unavailable ({s.ready}/{s.desired} ready)"
+                         + (f"; its callers {', '.join(callers)} are failing" if callers
+                            else "; no caller shows symptoms yet"),
                          supporting=[e for e in (b.ev(f"metric:{dep}:scaled_to_zero"), b.ev(f"k8s:{dep}:rollout"),
                                                  b.ev(f"metric:{dep}:unavailable_replicas")) if e])
         if callers:
@@ -374,7 +409,11 @@ def rule_network_degradation(b: ContextBundle) -> list[Candidate]:
             server_err = (ds.error_ratio if ds else 0.0) or 0.0
             latency_div = client_p95 > 200 and client_p95 > 2.5 * server_p95 + 100
             server_ok = server_err < 0.02
-        error_div = err >= 0.05 and server_ok
+        transport = [sig for sig in b.log_signatures(caller)
+                     if TRANSPORT_WORDS.search(sig.signature) and dep in sig.signature]
+        caller_failing = "error_ratio" in signals_of(b, caller)
+        error_div = server_ok and (err >= 0.05 or (err >= 0.02 and caller_failing and bool(transport)
+                                                   and dep not in b.anomalous))
         if not (latency_div or error_div):
             continue
         cand = Candidate(CauseCategory.NETWORK_DEGRADATION, dep, 3.0,
@@ -387,6 +426,9 @@ def rule_network_degradation(b: ContextBundle) -> list[Candidate]:
             cand.plus(2.0, "client-side latency far above server-side latency / peer callers")
         if error_div:
             cand.plus(2.0, "client-side failures while the dependency reports no errors")
+        if transport:
+            cand.plus(1.5, f"{caller} logs transport-level failures calling {dep}",
+                      b.ev(f"log:{caller}:{transport[0].signature}"))
         if b.ev(f"trace:gap:{edge}"):
             cand.plus(1.5, "traces show time spent between client and server spans", b.ev(f"trace:gap:{edge}"))
         if b.ev(f"healthy:{dep}"):
@@ -395,6 +437,11 @@ def rule_network_degradation(b: ContextBundle) -> list[Candidate]:
             cand.plus(0.5, "no recent changes to either side")
         if dep in b.anomalous:
             cand.minus(2.0, f"{dep} is itself anomalous", *symptom_evs(b, dep))
+        cs = b.signals.get(caller)
+        if latency_div and cs is not None and (cs.throttle_ratio or 0) >= THROTTLE_EVIDENCE:
+            # A CPU-starved process measures inflated latency on every outbound call.
+            cand.minus(2.0, f"{caller} is CPU-throttled ({(cs.throttle_ratio or 0):.0%} of periods), which inflates "
+                            "its client-side timings", b.ev(f"metric:{caller}:latency_p95"))
         if ds is not None and (ds.error_ratio or 0) >= 0.02:
             cand.minus(2.5, f"{dep} reports server-side errors: the failure is in the service, not the path",
                        b.ev(f"metric:{dep}:error_ratio"))

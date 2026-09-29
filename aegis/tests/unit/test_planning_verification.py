@@ -147,3 +147,15 @@ async def test_verification_outcomes() -> None:
     assert await _verify([worse] * 6, before) == VerificationOutcome.DEGRADED
     assert await _verify([same] * 6, before) == VerificationOutcome.NO_EFFECT
 
+
+
+async def test_latency_above_baseline_but_within_slo_counts_as_resolved() -> None:
+    """Regression (benchmark run 2, payment-traffic-surge): scaling absorbed a traffic surge and
+    every SLO passed (violation 0.17 -> 0.00), but p95 stayed above its pre-surge *baseline*. The
+    early-warning flag kept verification at PARTIAL; the engine scaled again, called it NO_EFFECT,
+    reverted and escalated a fixed incident."""
+    before = {"payment-service": signals("payment-service", ("latency_p95", 420), p95_ms=420)}
+    settled = {"payment-service": signals("payment-service", ("latency_p95", 180), p95_ms=180)}  # 180ms < SLO 300ms
+    assert await _verify([settled] * 6, before) == VerificationOutcome.RESOLVED
+    still_breaching = {"payment-service": signals("payment-service", ("latency_p95", 350), p95_ms=350)}
+    assert await _verify([still_breaching] * 6, before) != VerificationOutcome.RESOLVED

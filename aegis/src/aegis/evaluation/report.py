@@ -51,10 +51,15 @@ def _fmt_rate(x: dict[str, Any]) -> str:
     return f"{x['value']:.0%} ({x['k']}/{x['n']}, 95% CI {x['ci95'][0]:.0%}–{x['ci95'][1]:.0%})"
 
 
-def _fmt_dur(x: dict[str, Any]) -> str:
+def _fmt_dur(x: dict[str, Any], unit: str = "s") -> str:
     if not x.get("n"):
         return "n/a"
-    return f"mean {x['mean']}s, median {x['median']}s, p90 {x['p90']}s (n={x['n']}, 95% CI {x['ci95'][0]}–{x['ci95'][1]}s)"
+    return (f"mean {x['mean']}{unit}, median {x['median']}{unit}, p90 {x['p90']}{unit} "
+            f"(n={x['n']}, 95% CI {x['ci95'][0]}–{x['ci95'][1]}{unit})")
+
+
+def _s(v: float | None) -> str:
+    return "–" if v is None else f"{v:.1f}"
 
 
 def markdown(meta: dict[str, Any], summary: dict[str, Any], results: list[dict[str, Any]]) -> str:
@@ -80,8 +85,8 @@ def markdown(meta: dict[str, Any], summary: dict[str, Any], results: list[dict[s
             ("Detection latency (anomaly onset → incident)", _fmt_dur(summary["detection_latency_s"])),
             ("Recovery time (injection → verified resolution)", _fmt_dur(summary["recovery_time_s"])),
             ("MTTR (detection → verified resolution)", _fmt_dur(summary["mttr_s"])),
-            ("Actions per detected incident", _fmt_dur(summary["actions_per_incident"])),
-            ("Evidence grounding (cited ids that exist)", _fmt_dur(summary["evidence_grounding"]).replace("s", "")),
+            ("Actions per detected incident", _fmt_dur(summary["actions_per_incident"], "")),
+            ("Evidence grounding (cited ids that exist)", _fmt_dur(summary["evidence_grounding"], "")),
             ("Confidence calibration (Brier, lower is better)", str(summary["calibration_brier"]))]
     lines += [f"| {k} | {v} |" for k, v in rows]
     lines += ["", "## Per scenario", "",
@@ -90,9 +95,9 @@ def markdown(meta: dict[str, Any], summary: dict[str, Any], results: list[dict[s
     for r in results:
         rc = "n/a" if r["root_cause_correct"] is None else ("✔" if r["root_cause_correct"] else "✘")
         lines.append(f"| {r['scenario']} | {r['repetition']} | {'yes' if r['detected'] else 'no'} | "
-                     f"{r['time_to_detect_s'] if r['time_to_detect_s'] is not None else '–'} | {rc} | "
+                     f"{_s(r['time_to_detect_s'])} | {rc} | "
                      f"{', '.join(r['actions_executed']) or '–'} | {r['outcome']} | "
-                     f"{r['recovery_time_s'] if r['recovery_time_s'] is not None else '–'} | {'✔' if r['passed'] else '✘'} |")
+                     f"{_s(r['recovery_time_s'])} | {'✔' if r['passed'] else '✘'} |")
     failures = [r for r in results if not r["passed"]]
     if failures:
         lines += ["", "## Failures (unfiltered)", ""]
