@@ -137,8 +137,12 @@ def ensure_secrets() -> dict[str, str]:
     if llm_env:
         args = ["create", "secret", "generic", "aegis-llm", "-n", "aegis-system", "--dry-run=client", "-o", "yaml"]
         args += [f"--from-literal={k}={v}" for k, v in llm_env.items()]
-        kubectl("apply", "-f", "-", input_=kubectl(*args, capture=True).stdout, capture=True)
+        applied = kubectl("apply", "-f", "-", input_=kubectl(*args, capture=True).stdout, capture=True).stdout
         print(f"model provider configuration loaded from environment: {sorted(llm_env)}")
+        # Pods read the Secret only at start, so pick up changed keys or routes immediately.
+        if "unchanged" not in applied and kubectl("get", "deploy/aegis-engine", "-n", "aegis-system", check=False,
+                                                  capture=True).returncode == 0:
+            kubectl("rollout", "restart", "deploy/aegis-engine", "-n", "aegis-system")
     return values
 
 
@@ -181,7 +185,24 @@ def status() -> None:
     kubectl("get", "aegispolicies,canaryreleases", "-A", check=False)
 
 
+def load_dotenv(path: Path = ROOT / ".env") -> None:
+    """Read KEY=VALUE lines from the git-ignored .env; variables already set in the shell win."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.split(" #", 1)[0].strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if value:
+            os.environ.setdefault(key, value)
+
+
 def main() -> None:
+    load_dotenv()
     args = sys.argv[1:] or ["help"]
     cmd, rest = args[0], args[1:]
     if cmd == "up":
