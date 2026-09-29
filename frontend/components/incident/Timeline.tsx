@@ -30,10 +30,10 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
         <span>{shown.length} of {events.length} events</span>
         <button onClick={() => setAll(!all)} className="text-accent hover:underline">{all ? "Key events only" : "Show every event"}</button>
       </div>
-      <ol className="relative space-y-0 border-l border-line pl-4">
+      <ol className="relative space-y-0 pl-4 before:absolute before:bottom-2 before:left-0 before:top-2 before:w-px before:bg-gradient-to-b before:from-accent/60 before:via-line before:to-line">
         {shown.map((e) => (
           <li key={e.id} className="relative pb-3">
-            <span aria-hidden className={clsx("absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-panel",
+            <span aria-hidden className={clsx("absolute -left-[20.5px] top-1.5 h-2.5 w-2.5 rounded-full ring-[3px] ring-panel",
               TONE[e.type] ?? "bg-line")} />
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="tabular text-xs text-muted">{clock(e.ts)}</span>

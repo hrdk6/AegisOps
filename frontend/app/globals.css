@@ -2,46 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Harbor-night operations console. Tokens are RGB triplets for Tailwind alpha support. */
+/* Night-watch operations console. Tokens are RGB triplets for Tailwind alpha support.
+   The accent pair (signal aqua + periwinkle) is reserved for the remediation loop and
+   AegisOps' own agency; status colours are fixed and always paired with an icon + label. */
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: 12 22 28;          /* #0C161C */
-  --panel: 18 31 39;       /* #121F27 */
-  --raised: 24 41 51;      /* #182933 */
-  --line: 36 56 68;        /* #243844 */
-  --ink: 228 236 239;      /* #E4ECEF */
-  --ink2: 167 184 192;     /* #A7B8C0 */
-  --muted: 118 137 147;    /* #768993 */
-  --accent: 63 182 168;    /* verdigris #3FB6A8 */
-  --accent-ink: 5 36 33;
-  --good: 12 163 12;       /* status palette: fixed, always paired with icon + label */
-  --warning: 250 178 25;
-  --serious: 236 131 90;
-  --critical: 208 59 59;
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --grid: #22343f;
-  --axis: #3a5160;
+  --bg: 11 16 30;          /* #0B101E midnight */
+  --panel: 19 26 46;       /* #131A2E */
+  --raised: 27 36 62;      /* #1B243E */
+  --line: 40 51 84;        /* #283354 */
+  --ink: 234 239 250;      /* #EAEFFA */
+  --ink2: 170 182 208;     /* #AAB6D0 */
+  --muted: 116 131 164;    /* #7483A4 */
+  --accent: 69 198 230;    /* signal aqua #45C6E6 */
+  --accent2: 139 124 255;  /* periwinkle #8B7CFF */
+  --accent-ink: 4 22 32;
+  --good: 60 203 127;      /* mint #3CCB7F */
+  --warning: 242 193 78;   /* amber #F2C14E */
+  --serious: 242 136 75;   /* ember #F2884B */
+  --critical: 239 79 106;  /* rose #EF4F6A */
+  --series-1: #45c6e6;
+  --series-2: #f2884b;
+  --series-3: #3ccb7f;
+  --grid: #1f2945;
+  --axis: #34406a;
+  --glow: 69 198 230;      /* ambient hero glow; overridden by system state */
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: 236 241 243;       /* #ECF1F3 */
+  --bg: 238 242 249;       /* #EEF2F9 */
   --panel: 255 255 255;
-  --raised: 244 247 248;
-  --line: 211 221 226;
-  --ink: 12 22 28;
-  --ink2: 60 77 85;
-  --muted: 100 118 127;
-  --accent: 14 124 112;    /* #0E7C70 */
+  --raised: 245 247 252;
+  --line: 214 222 236;
+  --ink: 13 22 42;
+  --ink2: 58 72 102;
+  --muted: 98 113 145;
+  --accent: 8 132 170;     /* #0884AA */
+  --accent2: 91 84 214;    /* #5B54D6 */
   --accent-ink: 255 255 255;
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --grid: #e1e7ea;
-  --axis: #b9c6cc;
+  --good: 22 150 84;
+  --warning: 196 138 6;
+  --serious: 214 98 36;
+  --critical: 212 44 78;
+  --series-1: #0884aa;
+  --series-2: #d66224;
+  --series-3: #169654;
+  --grid: #e3e8f2;
+  --axis: #b8c3d8;
+  --glow: 8 132 170;
 }
 
 html,
@@ -53,8 +63,17 @@ body {
 body {
   font-size: 14px;
   line-height: 20px;
-  font-feature-settings: "tnum" 0;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Expanded width is the display voice: headings, figures, the brand. */
+.font-display {
+  font-variation-settings: "wdth" 116;
+  letter-spacing: -0.01em;
+}
+.font-wide {
+  font-variation-settings: "wdth" 125;
+  letter-spacing: -0.02em;
 }
 
 .tabular {
@@ -64,11 +83,104 @@ body {
 :focus-visible {
   outline: 2px solid rgb(var(--accent));
   outline-offset: 2px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::selection {
   background: rgb(var(--accent) / 0.35);
+}
+
+/* Faint dot lattice on the canvas: reads as an instrument surface, disappears under panels. */
+.canvas {
+  background-image: radial-gradient(rgb(var(--line) / 0.55) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: -11px -11px;
+}
+
+/* Ambient state glow behind the overview hero; colour follows system health. */
+.state-glow {
+  position: absolute;
+  inset: -40% -10% auto -10%;
+  height: 160%;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 55% at 16% 45%, rgb(var(--glow) / 0.22), transparent 70%),
+    radial-gradient(30% 45% at 34% 60%, rgb(var(--accent2) / 0.12), transparent 70%);
+  filter: blur(8px);
+}
+
+/* Panels: a hairline top highlight gives depth without a drop shadow on every card. */
+.panel {
+  background:
+    linear-gradient(180deg, rgb(var(--ink) / 0.025), transparent 120px),
+    rgb(var(--panel));
+  box-shadow: inset 0 1px 0 rgb(var(--ink) / 0.05);
+}
+
+/* ---- Motion ---------------------------------------------------------------- */
+
+/* The one orchestrated moment: the loop ring draws itself when the overview loads. */
+@keyframes loop-draw {
+  from { stroke-dashoffset: var(--len); }
+  to { stroke-dashoffset: 0; }
+}
+.loop-draw {
+  stroke-dasharray: var(--len);
+  animation: loop-draw 1.4s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+@keyframes station-in {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: scale(1); }
+}
+.station-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: station-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in {
+  animation: fade-in 0.6s ease-out both;
+}
+
+/* Live markers: the incident currently moving through the loop. */
+@keyframes rail-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(var(--accent) / 0.6); }
+  100% { box-shadow: 0 0 0 10px rgb(var(--accent) / 0); }
+}
+.rail-live {
+  animation: rail-pulse 1.6s ease-out infinite;
+}
+@keyframes ping-ring {
+  0% { r: 7; opacity: 0.7; }
+  100% { r: 18; opacity: 0; }
+}
+.ping-ring {
+  animation: ping-ring 1.8s ease-out infinite;
+}
+
+/* Traffic on dependency edges flows in the direction of the call. */
+@keyframes edge-flow {
+  to { stroke-dashoffset: -24; }
+}
+.edge-flow {
+  stroke-dasharray: 3 9;
+  animation: edge-flow 1.2s linear infinite;
+}
+.edge-flow-fast {
+  stroke-dasharray: 3 9;
+  animation: edge-flow 0.6s linear infinite;
+}
+
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.bar-grow {
+  transform-origin: left;
+  animation: bar-grow 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -76,17 +188,9 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* The one deliberate motion: the live marker on the lifecycle rail. */
-@keyframes rail-pulse {
-  0% { box-shadow: 0 0 0 0 rgb(var(--accent) / 0.55); }
-  100% { box-shadow: 0 0 0 8px rgb(var(--accent) / 0); }
-}
-.rail-live {
-  animation: rail-pulse 1.6s ease-out infinite;
 }
 
 .scrollbar-thin::-webkit-scrollbar {

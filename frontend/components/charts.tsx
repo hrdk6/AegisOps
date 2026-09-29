@@ -1,7 +1,8 @@
 "use client";
 
+import { useId } from "react";
 import {
-  CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps,
+  Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps,
 } from "recharts";
 
 type Point = [number, number];
@@ -13,7 +14,7 @@ function timeTick(t: number) {
 function ChartTooltip({ active, payload, label, format }: TooltipProps<number, string> & { format: (v: number) => string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded border border-line bg-raised px-2.5 py-1.5 text-xs shadow-lg">
+    <div className="rounded-lg border border-line bg-raised/95 px-2.5 py-1.5 text-xs shadow-lg backdrop-blur">
       <div className="text-muted">{new Date(label as number).toLocaleTimeString([], { hour12: false })}</div>
       <div className="tabular font-semibold text-ink">{format(payload[0].value as number)}</div>
     </div>
@@ -27,6 +28,7 @@ export function TimeSeries({ title, points, format, threshold, thresholdLabel = 
 }) {
   const data = points.map(([t, v]) => ({ t: t * 1000, v }));
   const last = data.at(-1)?.v;
+  const fillId = `fill-${useId().replace(/:/g, "")}`;
   return (
     <figure className="min-w-0">
       <figcaption className="mb-1 flex items-baseline justify-between gap-2">
@@ -39,7 +41,13 @@ export function TimeSeries({ title, points, format, threshold, thresholdLabel = 
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+          <AreaChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor={color} stopOpacity={0.28} />
+                <stop offset="1" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid vertical={false} stroke="var(--grid)" />
             <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} tickFormatter={timeTick} stroke="var(--axis)"
               tick={{ fill: "rgb(var(--muted))", fontSize: 11 }} tickLine={false} minTickGap={40} />
@@ -50,9 +58,9 @@ export function TimeSeries({ title, points, format, threshold, thresholdLabel = 
               <ReferenceLine y={threshold} stroke="rgb(var(--serious))" strokeDasharray="5 4" strokeWidth={1.2}
                 label={{ value: thresholdLabel, position: "insideTopRight", fill: "rgb(var(--ink2))", fontSize: 11 }} />
             )}
-            <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2} dot={false} isAnimationActive={false}
-              activeDot={{ r: 4, strokeWidth: 2, stroke: "rgb(var(--panel))" }} />
-          </LineChart>
+            <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill={`url(#${fillId})`} dot={false}
+              isAnimationActive={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "rgb(var(--panel))" }} />
+          </AreaChart>
         </ResponsiveContainer>
       )}
     </figure>

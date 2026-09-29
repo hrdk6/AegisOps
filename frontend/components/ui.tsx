@@ -8,10 +8,10 @@ export function Panel({ title, action, children, className, dense }: {
   title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; dense?: boolean;
 }) {
   return (
-    <section className={clsx("rounded-lg border border-line bg-panel", className)}>
+    <section className={clsx("panel rounded-xl border border-line/80", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
-          <h2 className="font-display text-md font-semibold tracking-wide text-ink">{title}</h2>
+        <header className="flex items-center justify-between gap-3 border-b border-line/70 px-4 py-3">
+          <h2 className="font-display text-md font-semibold text-ink">{title}</h2>
           {action}
         </header>
       )}
@@ -23,12 +23,12 @@ export function Panel({ title, action, children, className, dense }: {
 type Tone = "good" | "warning" | "serious" | "critical" | "neutral" | "accent";
 
 const TONE: Record<Tone, string> = {
-  good: "text-good border-good/40 bg-good/10",
-  warning: "text-warning border-warning/40 bg-warning/10",
-  serious: "text-serious border-serious/40 bg-serious/10",
-  critical: "text-critical border-critical/50 bg-critical/10",
+  good: "text-good border-good/30 bg-good/[0.12]",
+  warning: "text-warning border-warning/30 bg-warning/[0.12]",
+  serious: "text-serious border-serious/35 bg-serious/[0.12]",
+  critical: "text-critical border-critical/40 bg-critical/[0.14]",
   neutral: "text-ink2 border-line bg-raised",
-  accent: "text-accent border-accent/40 bg-accent/10",
+  accent: "text-accent border-accent/35 bg-accent/[0.12]",
 };
 
 const ICON: Record<Tone, typeof CheckCircle2> = {
@@ -41,7 +41,7 @@ export function Chip({ tone = "neutral", icon = true, children, className, title
 }) {
   const Icon = ICON[tone];
   return (
-    <span title={title} className={clsx("inline-flex items-center gap-1 whitespace-nowrap rounded-sm border px-1.5 py-px text-xs font-medium",
+    <span title={title} className={clsx("inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px text-xs font-medium",
       TONE[tone], className)}>
       {icon && <Icon aria-hidden size={12} strokeWidth={2.4} />}
       {children}
@@ -68,7 +68,7 @@ export function IncidentStatus({ status }: { status: string }) {
 
 const SEV_TONE: Record<string, Tone> = { SEV1: "critical", SEV2: "serious", SEV3: "warning" };
 export function Severity({ severity }: { severity: string }) {
-  return <Chip tone={SEV_TONE[severity] ?? "neutral"} icon={false} className="font-display font-semibold">{severity}</Chip>;
+  return <Chip tone={SEV_TONE[severity] ?? "neutral"} icon={false} className="rounded-md font-display font-bold">{severity}</Chip>;
 }
 
 const RISK_TONE: Record<string, Tone> = { LOW: "good", MEDIUM: "warning", HIGH: "serious", CRITICAL: "critical" };
@@ -90,14 +90,15 @@ export function Button({ children, onClick, variant = "secondary", disabled, bus
   busy?: boolean; type?: "button" | "submit"; className?: string;
 }) {
   const styles = {
-    primary: "bg-accent text-accentink hover:brightness-110 border-transparent",
-    secondary: "bg-raised text-ink border-line hover:border-ink2/50",
+    primary: "bg-accent text-accentink border-transparent shadow-[0_0_0_1px_rgb(var(--accent)/0.4),0_6px_20px_-6px_rgb(var(--accent)/0.6)] hover:brightness-110",
+    secondary: "bg-raised text-ink border-line hover:border-accent/50 hover:bg-raised/70",
     danger: "bg-critical/15 text-critical border-critical/50 hover:bg-critical/25",
     ghost: "bg-transparent text-ink2 border-transparent hover:text-ink",
   }[variant];
   return (
     <button type={type} onClick={onClick} disabled={disabled || busy}
-      className={clsx("inline-flex items-center justify-center gap-1.5 rounded border px-3 py-1.5 text-sm font-medium",
+      className={clsx("inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium",
+        "transition-[background-color,border-color,filter,transform] duration-150 active:translate-y-px",
         "disabled:cursor-not-allowed disabled:opacity-50", styles, className)}>
       {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}
       {children}
@@ -112,7 +113,7 @@ export function Empty({ children }: { children: ReactNode }) {
 export function ErrorNote({ error }: { error: unknown }) {
   const msg = error instanceof Error ? error.message : String(error);
   return (
-    <div role="alert" className="rounded border border-critical/40 bg-critical/10 px-3 py-2 text-sm text-ink">
+    <div role="alert" className="rounded-lg border border-critical/40 bg-critical/10 px-3 py-2 text-sm text-ink">
       <OctagonX size={14} className="mr-1.5 inline text-critical" aria-hidden />
       {msg}
     </div>
@@ -142,11 +143,11 @@ export function Mono({ children, className }: { children: ReactNode; className?:
 
 export function Bar({ value, tone = "accent", label }: { value: number; tone?: Tone; label?: string }) {
   const color = { good: "bg-good", warning: "bg-warning", serious: "bg-serious", critical: "bg-critical", neutral: "bg-muted",
-    accent: "bg-accent" }[tone];
+    accent: "bg-gradient-to-r from-accent2 to-accent" }[tone];
   return (
     <div className="flex items-center gap-2" aria-label={label}>
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised">
-        <div className={clsx("h-full rounded-full", color)} style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
+        <div className={clsx("bar-grow h-full rounded-full", color)} style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
       </div>
       <span className="tabular w-10 text-right text-xs text-ink2">{Math.round(value * 100)}%</span>
     </div>
@@ -157,13 +158,16 @@ export function Tabs<T extends string>({ tabs, value, onChange }: {
   tabs: { id: T; label: string; count?: number }[]; value: T; onChange: (t: T) => void;
 }) {
   return (
-    <div role="tablist" className="flex gap-1 border-b border-line px-2">
+    <div role="tablist" className="flex gap-1 overflow-x-auto border-b border-line/70 px-2 scrollbar-thin">
       {tabs.map((t) => (
         <button key={t.id} role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)}
-          className={clsx("-mb-px border-b-2 px-3 py-2 text-sm",
+          className={clsx("-mb-px whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors",
             value === t.id ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink2")}>
           {t.label}
-          {t.count !== undefined && <span className="ml-1.5 text-xs text-muted">{t.count}</span>}
+          {t.count !== undefined && (
+            <span className={clsx("ml-1.5 rounded-full px-1.5 text-xs", value === t.id ? "bg-accent/15 text-accent" : "bg-raised text-muted")}>
+              {t.count}</span>
+          )}
         </button>
       ))}
     </div>

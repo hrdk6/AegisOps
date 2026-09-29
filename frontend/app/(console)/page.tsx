@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { CheckCircle2 } from "lucide-react";
 import { DependencyGraph } from "@/components/DependencyGraph";
 import { IncidentRow } from "@/components/IncidentRow";
+import { LoopDial } from "@/components/LoopDial";
 import { Empty, ErrorNote, IncidentStatus, Loading, Mono, Panel, Phase, Risk, ServiceStatus } from "@/components/ui";
 import { fetcher } from "@/lib/api";
 import { ago, duration, ms, pct } from "@/lib/format";
@@ -34,28 +36,45 @@ export default function OverviewPage() {
   const resolvedAuto = (outcomes.resolved_autonomously ?? 0) + (outcomes.resolved_with_approval ?? 0);
   const total24 = Object.values(outcomes).reduce((a, b) => a + b, 0);
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-xl font-semibold">
-            {unhealthy.length === 0 ? "All services within SLO" : `${unhealthy.length} service${unhealthy.length > 1 ? "s" : ""} outside SLO`}
-          </h1>
-          <p className="mt-1 text-ink2">
-            {data.active_incidents.length
-              ? `${data.active_incidents.length} active incident${data.active_incidents.length > 1 ? "s" : ""}; AegisOps is ${data.automation.mode === "autonomous" ? "remediating within policy" : `in ${data.automation.mode} mode`}.`
-              : "No active incidents. The detector evaluates every service every 5 seconds."}
-          </p>
-        </div>
-        <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
-          <Stat label="SLO compliance" value={data.slo_compliance === null ? "–" : pct(data.slo_compliance, 0)} />
-          <Stat label="Incidents, 24h" value={String(total24)} />
-          <Stat label="Resolved by AegisOps, 24h" value={`${resolvedAuto}/${total24}`} />
-          <Stat label="Mean time to recover, 24h" value={duration(data.last_24h.mttr_seconds)} />
-        </dl>
-      </div>
+  const sev1 = data.active_incidents.some((i) => i.severity === "SEV1");
+  const glow = sev1 ? "var(--critical)" : data.active_incidents.length ? "var(--serious)"
+    : unhealthy.length ? "var(--warning)" : "var(--accent)";
 
-      <div className="grid gap-5 xl:grid-cols-5">
+  return (
+    <div className="space-y-6">
+      <section className="relative isolate" style={{ ["--glow" as string]: glow }} aria-labelledby="overview-heading">
+        <div aria-hidden className="state-glow -z-10 transition-colors" />
+        <div className="grid items-center gap-6 lg:grid-cols-[minmax(280px,380px)_1fr] lg:gap-10">
+          <LoopDial incidents={data.active_incidents} className="mx-auto w-full max-w-[380px] lg:mx-0">
+            <div className="tabular font-wide text-3xl font-extrabold leading-none">
+              {unhealthy.length === 0 ? <CheckCircle2 className="mx-auto text-good" size={40} aria-hidden /> : unhealthy.length}
+            </div>
+            <div className="mt-1.5 max-w-[8.5rem] text-xs text-ink2">
+              {unhealthy.length === 0 ? "every service within SLO" : `service${unhealthy.length > 1 ? "s" : ""} outside SLO`}
+            </div>
+          </LoopDial>
+          <div className="min-w-0">
+            <h1 id="overview-heading" className="font-wide text-2xl font-extrabold sm:text-3xl">
+              {unhealthy.length === 0 ? "All services within SLO" : `${unhealthy.length} service${unhealthy.length > 1 ? "s" : ""} outside SLO`}
+            </h1>
+            <p className="mt-2 max-w-xl text-md text-ink2">
+              {data.active_incidents.length
+                ? `${data.active_incidents.length} active incident${data.active_incidents.length > 1 ? "s" : ""}; AegisOps is ${data.automation.mode === "autonomous" ? "remediating within policy" : `in ${data.automation.mode} mode`}. Each marker on the loop is an incident at its current stage.`
+                : "No active incidents. The detector evaluates every service every 5 seconds."}
+            </p>
+            <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line/80 bg-line/80 sm:grid-cols-4">
+              <Stat label="SLO compliance" value={data.slo_compliance === null ? "–" : pct(data.slo_compliance, 0)}
+                meter={data.slo_compliance ?? undefined} />
+              <Stat label="Incidents, 24h" value={String(total24)} />
+              <Stat label="Resolved by AegisOps, 24h" value={`${resolvedAuto}/${total24}`}
+                meter={total24 ? resolvedAuto / total24 : undefined} />
+              <Stat label="Mean time to recover, 24h" value={duration(data.last_24h.mttr_seconds)} />
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-5">
         <Panel title="Live dependency map" className="min-w-0 xl:col-span-3"
           action={<Link href="/services" className="text-sm text-accent hover:underline">All services</Link>}>
           {topo ? (
@@ -90,8 +109,13 @@ export default function OverviewPage() {
             </thead>
             <tbody className="tabular">
               {data.services.map(({ name, status, signals: s }) => (
-                <tr key={name} className="border-b border-line/60 hover:bg-raised/50">
-                  <td className="px-4 py-2"><Link href={`/services/${name}`} className="hover:text-accent">{name}</Link></td>
+                <tr key={name} className="border-b border-line/50 transition-colors hover:bg-raised/50">
+                  <td className="px-4 py-2.5">
+                    <Link href={`/services/${name}`} className="flex items-center gap-2 font-medium hover:text-accent">
+                      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${status === "healthy" ? "bg-good" : status === "degraded" ? "bg-warning" : status === "down" ? "bg-critical" : "bg-muted"}`} />
+                      {name}
+                    </Link>
+                  </td>
                   <td className="px-2"><ServiceStatus status={status} /></td>
                   <td className="px-2 text-right">{s.rps?.toFixed(2) ?? "–"}</td>
                   <td className="px-2 text-right">{pct(s.error_ratio)}</td>
@@ -99,7 +123,7 @@ export default function OverviewPage() {
                   <td className="px-2 text-right">{pct(s.cpu_util, 0)}</td>
                   <td className="px-2 text-right">{pct(s.mem_util, 0)}</td>
                   <td className="px-2 text-right">{s.ready}/{s.desired}</td>
-                  <td className="px-4 text-xs text-ink2">{s.anomalies.map((a) => a.reason).join("; ") || "–"}</td>
+                  <td className={`px-4 text-xs ${s.anomalies.length ? "text-warning" : "text-muted"}`}>{s.anomalies.map((a) => a.reason).join("; ") || "–"}</td>
                 </tr>
               ))}
             </tbody>
@@ -107,7 +131,7 @@ export default function OverviewPage() {
         </div>
       </Panel>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         <Panel title="Recent actions" dense>
           <ActionList items={data.recent_actions} empty="No remediation actions yet." />
         </Panel>
@@ -119,11 +143,18 @@ export default function OverviewPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, meter }: { label: string; value: string; meter?: number }) {
   return (
-    <div>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="tabular font-display text-lg font-semibold">{value}</dd>
+    <div className="panel flex flex-col px-4 py-3.5">
+      <dt className="order-2 mt-1 text-xs text-ink2">{label}</dt>
+      <dd className="order-1 contents">
+        <span className="tabular order-1 font-wide text-xl font-bold">{value}</span>
+        <span aria-hidden className="order-3 mt-2.5 block h-1 overflow-hidden rounded-full bg-raised">
+          {meter !== undefined && (
+            <span className="bar-grow block h-full rounded-full bg-gradient-to-r from-accent2 to-accent" style={{ width: `${Math.max(2, meter * 100)}%` }} />
+          )}
+        </span>
+      </dd>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Undo2 } from "lucide-react";
+import { Check, Undo2, X } from "lucide-react";
 import { clock } from "@/lib/format";
 import type { IncidentDetail, TimelineEvent } from "@/lib/types";
 
@@ -62,32 +62,38 @@ export function LifecycleRail({ incident, events }: { incident: IncidentDetail; 
 
   return (
     <div className="overflow-x-auto scrollbar-thin" aria-label="Incident lifecycle">
-      <ol className="flex min-w-[760px] items-start">
-        {stages.map((s, i) => (
-          <li key={s.key} className="relative flex-1">
-            {i > 0 && (
-              <span aria-hidden className={clsx("absolute left-0 right-1/2 top-[9px] h-0.5 -translate-x-0",
-                s.state === "done" || s.state === "current" || s.state === "failed" ? "bg-accent/70" : "bg-line")} />
-            )}
-            {i < stages.length - 1 && (
-              <span aria-hidden className={clsx("absolute left-1/2 right-0 top-[9px] h-0.5",
-                stages[i + 1].state === "done" || stages[i + 1].state === "current" || stages[i + 1].state === "failed"
-                  ? "bg-accent/70" : "bg-line")} />
-            )}
-            <div className="relative flex flex-col items-center px-1 text-center">
-              <span className={clsx("z-10 h-5 w-5 rounded-full border-2",
-                s.state === "done" && "border-accent bg-accent",
-                s.state === "current" && "rail-live border-accent bg-bg",
-                s.state === "pending" && "border-line bg-bg",
-                s.state === "skipped" && "border-dashed border-line bg-bg",
-                s.state === "failed" && "border-critical bg-critical")} />
-              <span className={clsx("mt-1.5 font-display text-sm font-semibold",
-                s.state === "pending" || s.state === "skipped" ? "text-muted" : "text-ink")}>{s.label}</span>
-              <span className="tabular text-xs text-ink2">{s.at ? clock(s.at) : s.state === "current" ? "in progress" : "–"}</span>
-              {s.note && <span className="max-w-[9rem] truncate text-xs text-muted" title={s.note}>{s.note}</span>}
-            </div>
-          </li>
-        ))}
+      <ol className="flex min-w-[760px] items-start py-1">
+        {stages.map((s, i) => {
+          const lit = (st: Stage["state"]) => st === "done" || st === "current" || st === "failed";
+          return (
+            <li key={s.key} className="relative flex-1">
+              {i > 0 && (
+                <span aria-hidden className={clsx("absolute left-0 right-1/2 top-[11px] h-[3px] rounded-l-full",
+                  lit(s.state) ? "bg-gradient-to-r from-accent2/80 to-accent" : "bg-line")} />
+              )}
+              {i < stages.length - 1 && (
+                <span aria-hidden className={clsx("absolute left-1/2 right-0 top-[11px] h-[3px] rounded-r-full",
+                  lit(stages[i + 1].state) ? "bg-gradient-to-r from-accent to-accent2/80" : "bg-line")} />
+              )}
+              <div className="relative flex flex-col items-center px-1 text-center">
+                <span className={clsx("station-in z-10 flex h-6 w-6 items-center justify-center rounded-full border-2",
+                  s.state === "done" && "border-accent bg-accent text-accentink shadow-[0_0_12px_rgb(var(--accent)/0.45)]",
+                  s.state === "current" && "rail-live border-accent bg-bg",
+                  s.state === "pending" && "border-line bg-bg",
+                  s.state === "skipped" && "border-dashed border-line bg-bg",
+                  s.state === "failed" && "border-critical bg-critical text-bg")} style={{ animationDelay: `${i * 70}ms` }}>
+                  {s.state === "done" && <Check size={13} strokeWidth={3} aria-hidden />}
+                  {s.state === "failed" && <X size={13} strokeWidth={3} aria-hidden />}
+                  {s.state === "current" && <span className="h-2 w-2 rounded-full bg-accent" aria-hidden />}
+                </span>
+                <span className={clsx("mt-2 font-display text-sm font-semibold",
+                  s.state === "pending" || s.state === "skipped" ? "text-muted" : "text-ink")}>{s.label}</span>
+                <span className="tabular text-xs text-ink2">{s.at ? clock(s.at) : s.state === "current" ? "in progress" : "–"}</span>
+                {s.note && <span className="max-w-[9rem] truncate text-xs text-muted" title={s.note}>{s.note}</span>}
+              </div>
+            </li>
+          );
+        })}
       </ol>
       {(rollbacks > 0 || incident.iteration > 1) && (
         <p className="mt-3 flex items-center gap-2 text-xs text-ink2">

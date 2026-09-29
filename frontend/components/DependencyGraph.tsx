@@ -63,6 +63,9 @@ export function DependencyGraph({ nodes, edges, root, highlight = [], onSelect, 
           <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L8,4 L0,8 z" fill="rgb(var(--muted))" />
           </marker>
+          <marker id="arrow-hot" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L8,4 L0,8 z" fill="rgb(var(--serious))" />
+          </marker>
         </defs>
         {edges.map((e) => {
           const a = pos.get(e.from);
@@ -79,13 +82,21 @@ export function DependencyGraph({ nodes, edges, root, highlight = [], onSelect, 
             : `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
           const dim = related && !(related.has(e.from) && related.has(e.to));
           const unhealthy = statusOf.get(e.to) === "down" || statusOf.get(e.to) === "degraded";
+          const observed = e.observedMetrics || e.observedTraces;
+          const stroke = unhealthy ? "rgb(var(--serious))" : "rgb(var(--muted))";
           return (
-            <path key={`${e.from}-${e.to}`} d={d} fill="none" markerEnd="url(#arrow)"
-              stroke={unhealthy ? "rgb(var(--serious))" : "rgb(var(--muted))"}
-              strokeOpacity={dim ? 0.15 : 0.75} strokeWidth={unhealthy ? 1.8 : 1.3}
-              strokeDasharray={e.declared && !(e.observedMetrics || e.observedTraces) ? "5 4" : !e.declared ? "2 3" : undefined}>
-              <title>{`${e.from} → ${e.to} (${e.status})`}</title>
-            </path>
+            <g key={`${e.from}-${e.to}`} opacity={dim ? 0.15 : 1} style={{ transition: "opacity 200ms ease" }}>
+              <path d={d} fill="none" markerEnd={unhealthy ? "url(#arrow-hot)" : "url(#arrow)"} stroke={stroke}
+                strokeOpacity={0.55} strokeWidth={unhealthy ? 1.6 : 1.2}
+                strokeDasharray={e.declared && !observed ? "5 4" : !e.declared ? "2 3" : undefined}>
+                <title>{`${e.from} → ${e.to} (${e.status})`}</title>
+              </path>
+              {/* Moving dashes on edges seen in telemetry: traffic, flowing in the direction of the call. */}
+              {observed && !back && (
+                <path d={d} fill="none" stroke={unhealthy ? "rgb(var(--serious))" : "rgb(var(--accent))"} strokeWidth={2}
+                  strokeLinecap="round" className="edge-flow" opacity={0.9} aria-hidden />
+              )}
+            </g>
           );
         })}
         {nodes.map((n) => {
@@ -97,18 +108,22 @@ export function DependencyGraph({ nodes, edges, root, highlight = [], onSelect, 
           return (
             <g key={n.name} transform={`translate(${p.x},${p.y})`} opacity={dim ? 0.35 : 1}
               onMouseEnter={() => setHover(n.name)} onMouseLeave={() => setHover(null)}
-              onClick={() => onSelect?.(n.name)} style={{ cursor: onSelect ? "pointer" : "default" }}
+              onClick={() => onSelect?.(n.name)} style={{ cursor: onSelect ? "pointer" : "default", transition: "opacity 200ms ease" }}
               tabIndex={onSelect ? 0 : -1} onKeyDown={(ev) => ev.key === "Enter" && onSelect?.(n.name)}
               role={onSelect ? "button" : undefined} aria-label={`${n.name}: ${status}${isRoot ? ", probable root cause" : ""}`}>
-              {isRoot && <rect x={-5} y={-5} width={nodeW + 10} height={nodeH + 10} rx={9} fill="none"
-                stroke="rgb(var(--accent))" strokeWidth={2} strokeDasharray="4 3" />}
-              <rect width={nodeW} height={nodeH} rx={6} fill={hl ? "rgb(var(--raised))" : "rgb(var(--panel))"}
-                stroke={STATUS_STROKE[status] ?? STATUS_STROKE.unknown} strokeWidth={status === "healthy" ? 1.2 : 2} />
-              <circle cx={15} cy={nodeH / 2} r={7.5} fill={STATUS_STROKE[status] ?? STATUS_STROKE.unknown} />
-              <text x={15} y={nodeH / 2 + 3.5} textAnchor="middle" fontSize="10" fontWeight="700" fill="rgb(var(--bg))">
+              {isRoot && <rect x={-6} y={-6} width={nodeW + 12} height={nodeH + 12} rx={13} fill="rgb(var(--accent) / 0.06)"
+                stroke="rgb(var(--accent))" strokeWidth={1.8} strokeDasharray="5 4" />}
+              <rect width={nodeW} height={nodeH} rx={9} fill={hl ? "rgb(var(--raised))" : "rgb(var(--panel))"}
+                stroke={STATUS_STROKE[status] ?? STATUS_STROKE.unknown} strokeWidth={status === "healthy" ? 1 : 1.8}
+                strokeOpacity={status === "healthy" ? 0.55 : 1}
+                style={status !== "healthy" && status !== "unknown"
+                  ? { filter: `drop-shadow(0 0 6px ${STATUS_STROKE[status].replace(")", " / 0.55)")})` } : undefined} />
+              <circle cx={16} cy={nodeH / 2} r={7} fill={STATUS_STROKE[status] ?? STATUS_STROKE.unknown} />
+              <text x={16} y={nodeH / 2 + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="rgb(var(--bg))">
                 {STATUS_GLYPH[status] ?? "?"}
               </text>
-              <text x={29} y={nodeH / 2 + 4} fontSize="12.5" fill="rgb(var(--ink))" fontFamily="var(--font-barlow)">
+              <text x={30} y={nodeH / 2 + 4} fontSize="12.5" fontWeight={status === "healthy" ? 500 : 600} fill="rgb(var(--ink))"
+                fontFamily="var(--font-archivo)">
                 {n.name.length > 16 ? `${n.name.slice(0, 15)}…` : n.name}
               </text>
               <title>{`${n.name}: ${status}${n.replicas !== undefined ? ` (${n.ready}/${n.replicas} ready)` : ""}`}</title>
@@ -117,6 +132,7 @@ export function DependencyGraph({ nodes, edges, root, highlight = [], onSelect, 
         })}
       </svg>
       <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        <span><span aria-hidden className="mr-1 inline-block h-0.5 w-4 bg-accent align-middle" />Moving: traffic seen in telemetry</span>
         <span>Solid: declared and observed in telemetry</span>
         <span>Dashed: declared, not yet observed</span>
         <span>Dotted: observed, not declared</span>
