@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-controller
+  namespace: aegis-system
+  labels: { app: aegis-controller, app.kubernetes.io/part-of: aegisops }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: aegis-controller } }
+  template:
+    metadata:
+      labels: { app: aegis-controller }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      serviceAccountName: aegis-controller
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: aegis-controller
+          image: aegisops/controlplane:dev
+          args:
+            - --watch-namespaces=shop
+            - --system-namespace=aegis-system
+            - --sandbox-namespace=aegis-sandbox
+            - --prometheus-url=http://prometheus.observability.svc:9090
+            - --approval-key-file=/etc/aegis/approval/key
+            - --probe-image=aegisops/shopflow:1.0.0
+            - --role-bindings=system:serviceaccount:aegis-system:aegis-engine=reader,proposer;system:serviceaccount:aegis-system:aegis-api=reader,approver
+            - --zap-encoder=json
+          env:
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.observability.svc:4317" }
+            - { name: OTEL_SERVICE_NAME, value: aegis-controller }
+          ports:
+            - { name: metrics, containerPort: 8080 }
+            - { name: probes, containerPort: 8081 }
+            - { name: api, containerPort: 8082 }
+          readinessProbe: { httpGet: { path: /readyz, port: probes }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: probes }, periodSeconds: 10, initialDelaySeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 500m, memory: 256Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: approval-key, mountPath: /etc/aegis/approval, readOnly: true }]
+      volumes:
+        - name: approval-key
+          secret: { secretName: aegis-approval-key, items: [{ key: key, path: key }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: aegis-controlplane, namespace: aegis-system }
+spec:
+  selector: { app: aegis-controller }
+  ports: [{ name: api, port: 8082, targetPort: api }]
+---
+# Only the AegisOps engine and API may reach the control-plane API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: controlplane-api-ingress, namespace: aegis-system }
+spec:
+  podSelector: { matchLabels: { app: aegis-controller } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: aegis-engine } }
+        - podSelector: { matchLabels: { app: aegis-api } }
+      ports: [{ protocol: TCP, port: 8082 }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: observability } }
+      ports: [{ protocol: TCP, port: 8080 }]
+    - ports: [{ protocol: TCP, port: 8081 }]

@@ -1,0 +1,46 @@
+# Isolation boundary for remediation simulations (digital twin).
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: aegis-sandbox-runner, namespace: aegis-sandbox }
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: sandbox-quota, namespace: aegis-sandbox }
+spec:
+  hard:
+    pods: "8"
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 3Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata: { name: sandbox-defaults, namespace: aegis-sandbox }
+spec:
+  limits:
+    - type: Container
+      default: { cpu: 250m, memory: 192Mi }
+      defaultRequest: { cpu: 20m, memory: 32Mi }
+---
+# Default deny: sandbox pods may only talk to each other and to cluster DNS.
+# Egress rules need a CNI that enforces them; kind's bundled kindnet (v0.30) enforces ingress
+# rules only, so the production namespaces also reject sandbox traffic on ingress
+# (deploy/base/{shop,observability,aegis}/network-policy.yaml). Clones carry no credentials
+# either: secrets are stripped and the service account has no token or permissions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: sandbox-isolation, namespace: aegis-sandbox }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{ podSelector: {} }]
+  egress:
+    - to: [{ podSelector: {} }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }

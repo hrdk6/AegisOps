@@ -1,0 +1,53 @@
+# Scenario 01: Payment release with a ledger rounding regression
+id: payment-bad-release
+title: Payment release with a ledger rounding regression
+fault_class: bad_deployment
+description: payment-service 1.1.0 enables a new rounding mode that fails ~35% of charges.
+demo: true
+fault:
+  type: release
+  target: payment-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    PAYMENT_ROUNDING_MODE: bankers-v2
+expected:
+  detection: required
+  symptoms:
+  - payment-service.error_ratio
+  - order-service.error_ratio
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    component: payment-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: payment-service
+    acceptable:
+    - action: rollback_deployment
+      target: payment-service
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: rollback_deployment
+      target: api-gateway
+    - action: scale_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+verification:
+  services:
+  - payment-service
+  - order-service
+  - api-gateway
+rollback_conditions: Revert the remediation if payment error ratio does not fall below 2% after rollout.
+tags:
+- release
+- errors
+- cascade
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'

@@ -1,0 +1,462 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: grafana-provisioning, namespace: observability }
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.observability.svc:9090
+        isDefault: true
+        jsonData: { timeInterval: 5s }
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki.observability.svc:3100
+        jsonData:
+          derivedFields:
+            - name: trace_id
+              matcherType: label
+              matcherRegex: trace_id
+              datasourceUid: jaeger
+              url: "$${__value.raw}"
+      - name: Jaeger
+        uid: jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger.observability.svc:16686
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: aegisops
+        folder: AegisOps
+        type: file
+        options: { path: /var/lib/grafana/dashboards }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: grafana-dashboards, namespace: observability }
+data:
+  aegisops-control-plane.json: |
+    {
+      "uid": "aegisops-control-plane",
+      "title": "AegisOps — Control Plane",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Active anomalies by service",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (service) (aegis_active_anomalies)",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Incidents opened (per 5m) by severity",
+          "gridPos": {
+            "x": 8,
+            "y": 0,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (severity) (increase(aegis_incidents_created_total[5m]))",
+              "legendFormat": "{{severity}}"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Circuit breaker open",
+          "gridPos": {
+            "x": 16,
+            "y": 0,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "max(aegis_circuit_breaker_open)",
+              "legendFormat": "open"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Policy decisions (per 5m) by outcome",
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (outcome) (increase(aegis_policy_decisions_total[5m]))",
+              "legendFormat": "{{outcome}}"
+            }
+          ]
+        },
+        {
+          "type": "bargauge",
+          "title": "Policy decisions by risk level (1h)",
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (risk) (increase(aegis_policy_decisions_total[1h]))",
+              "legendFormat": "{{risk}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Action phase transitions (per 5m)",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (phase) (increase(aegis_action_transitions_total[5m]))",
+              "legendFormat": "{{phase}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Action execution time p95 by type",
+          "gridPos": {
+            "x": 12,
+            "y": 16,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (action_type, le) (rate(aegis_action_execution_seconds_bucket[15m])))",
+              "legendFormat": "{{action_type}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "type": "bargauge",
+          "title": "Sandbox simulations by verdict (1h)",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (verdict) (increase(aegis_simulations_total[1h]))",
+              "legendFormat": "{{verdict}}"
+            }
+          ]
+        },
+        {
+          "type": "bargauge",
+          "title": "Canary analyses by verdict (1h)",
+          "gridPos": {
+            "x": 8,
+            "y": 24,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (verdict) (increase(aegis_canary_analyses_total[1h]))",
+              "legendFormat": "{{verdict}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Detection cycle p95",
+          "gridPos": {
+            "x": 16,
+            "y": 24,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(aegis_engine_detection_cycle_seconds_bucket[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Model calls (per 5m) by status",
+          "gridPos": {
+            "x": 0,
+            "y": 32,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (provider, status) (increase(aegis_llm_calls_total[5m]))",
+              "legendFormat": "{{provider}} {{status}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Model tokens (per 5m)",
+          "gridPos": {
+            "x": 8,
+            "y": 32,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (provider, direction) (increase(aegis_llm_tokens_total[5m]))",
+              "legendFormat": "{{provider}} {{direction}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Model cost (USD, cumulative)",
+          "gridPos": {
+            "x": 16,
+            "y": 32,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (provider, model) (aegis_llm_cost_usd_total)",
+              "legendFormat": "{{provider}} {{model}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyUSD"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Control-plane API requests (per 5m) by code",
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "expr": "sum by (code) (increase(aegis_controlplane_api_requests_total[5m]))",
+              "legendFormat": "{{code}}"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "title": "AegisOps engine and controller logs",
+          "gridPos": {
+            "x": 12,
+            "y": 40,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "targets": [
+            {
+              "expr": "{k8s_namespace_name=\"aegis-system\"} | json | level=~\"warning|error|info\" | msg=~\"incident|action|policy|revert|escalat.*\""
+            }
+          ]
+        }
+      ]
+    }
+  shopflow-golden-signals.json: |
+    {
+      "uid": "shopflow-golden",
+      "title": "ShopFlow — Golden Signals",
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": { "from": "now-30m", "to": "now" },
+      "templating": { "list": [] },
+      "panels": [
+        { "type": "timeseries", "title": "Request rate by service (req/s)", "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{ "expr": "sum by (service) (rate(shop_http_requests_total[30s]))", "legendFormat": "{{service}}" }] },
+        { "type": "timeseries", "title": "5xx error ratio by service", "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } },
+          "targets": [{ "expr": "sum by (service) (rate(shop_http_requests_total{code=~\"5..\"}[30s])) / sum by (service) (rate(shop_http_requests_total[30s]))", "legendFormat": "{{service}}" }] },
+        { "type": "timeseries", "title": "p95 latency by service", "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [{ "expr": "histogram_quantile(0.95, sum by (service, le) (rate(shop_http_request_duration_seconds_bucket[30s])))", "legendFormat": "{{service}}" }] },
+        { "type": "timeseries", "title": "Customer success ratio (load generator)", "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } },
+          "targets": [{ "expr": "sum by (flow) (rate(loadgen_requests_total{outcome=\"success\"}[30s])) / sum by (flow) (rate(loadgen_requests_total[30s]))", "legendFormat": "{{flow}}" }] },
+        { "type": "timeseries", "title": "CPU (cores) by container", "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{ "expr": "sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"shop\",container!=\"\"}[30s]))", "legendFormat": "{{container}}" }] },
+        { "type": "timeseries", "title": "Memory working set by container", "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" } },
+          "targets": [{ "expr": "sum by (container) (container_memory_working_set_bytes{namespace=\"shop\",container!=\"\"})", "legendFormat": "{{container}}" }] },
+        { "type": "timeseries", "title": "DB pool in use / waiting", "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum by (service) (shop_db_pool_in_use)", "legendFormat": "{{service}} in use" },
+            { "expr": "sum by (service) (shop_db_pool_waiting)", "legendFormat": "{{service}} waiting" } ] },
+        { "type": "timeseries", "title": "Dependency p95 latency (client side)", "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [{ "expr": "histogram_quantile(0.95, sum by (service, dependency, le) (rate(shop_dependency_request_duration_seconds_bucket[30s])))", "legendFormat": "{{service}} → {{dependency}}" }] },
+        { "type": "logs", "title": "Error logs (shop)", "gridPos": { "x": 0, "y": 32, "w": 24, "h": 10 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{ "expr": "{k8s_namespace_name=\"shop\"} | json | level=~\"error|critical\"" }] }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: grafana, namespace: observability, labels: { app: grafana } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grafana } }
+  template:
+    metadata: { labels: { app: grafana } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 472, fsGroup: 472 }
+      containers:
+        - name: grafana
+          image: grafana/grafana:12.0.2
+          ports: [{ name: http, containerPort: 3000 }]
+          env:
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "true" }
+            - { name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Viewer }
+            - { name: GF_ANALYTICS_REPORTING_ENABLED, value: "false" }
+            - { name: GF_ANALYTICS_CHECK_FOR_UPDATES, value: "false" }
+            - { name: GF_USERS_DEFAULT_THEME, value: dark }
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: grafana-admin, key: password } }
+          readinessProbe: { httpGet: { path: /api/health, port: http }, periodSeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { cpu: 500m, memory: 384Mi } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml }
+            - { name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+            - { name: data, mountPath: /var/lib/grafana }
+      volumes:
+        - { name: provisioning, configMap: { name: grafana-provisioning } }
+        - { name: dashboards, configMap: { name: grafana-dashboards } }
+        - { name: data, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: grafana, namespace: observability }
+spec:
+  type: NodePort
+  selector: { app: grafana }
+  ports: [{ name: http, port: 3000, targetPort: http, nodePort: 30301 }]

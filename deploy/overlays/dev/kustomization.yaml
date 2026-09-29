@@ -1,0 +1,6 @@
+# Local development environment (kind). CRDs are applied separately by
+# scripts/devctl.py so they are established before custom resources.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

@@ -1,0 +1,49 @@
+# Scenario 16: Network latency between order-service and payment-service
+id: order-payment-network-latency
+title: Network latency between order-service and payment-service
+fault_class: network
+description: The network path order -> payment adds ~800ms; payment itself is fast.
+fault:
+  type: network
+  target: payment-service
+  proxy: payment
+  toxic:
+    type: latency
+    attributes:
+      latency: 800
+      jitter: 100
+expected:
+  symptoms:
+  - order-service.latency_p95
+  root_cause:
+    categories:
+    - NETWORK_DEGRADATION
+    component: payment-service
+  remediation:
+    optimal: []
+    acceptable: []
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: scale_deployment
+      target: payment-service
+    - action: rollout_restart
+      target: payment-service
+    - action: rollback_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - escalated
+  detection: required
+verification:
+  services:
+  - order-service
+tags:
+- network
+- latency
+- escalation
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

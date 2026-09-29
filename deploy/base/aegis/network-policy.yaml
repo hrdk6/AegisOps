@@ -1,0 +1,30 @@
+# Ingress rules for AegisOps' own components (the database and control-plane API have
+# stricter policies next to their Deployments). NetworkPolicies are additive, so these
+# select only pods that have no stricter policy of their own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: apps-deny-from-sandbox, namespace: aegis-system }
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app, operator: In, values: [aegis-api, aegis-frontend, aegis-engine] }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - { key: kubernetes.io/metadata.name, operator: NotIn, values: [aegis-sandbox] }
+        - ipBlock: { cidr: 0.0.0.0/0, except: [10.244.0.0/16] }
+---
+# The fault injector is reachable only by the API (which enforces RBAC and audits every
+# injection) and by Prometheus. Kubelet probes are node-originated and unaffected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: chaos-ingress, namespace: aegis-system }
+spec:
+  podSelector: { matchLabels: { app: aegis-chaos } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: aegis-api } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: observability } }

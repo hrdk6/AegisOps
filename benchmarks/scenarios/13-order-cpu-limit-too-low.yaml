@@ -1,0 +1,48 @@
+# Scenario 13: Order CPU limit lowered to 40m
+id: order-cpu-limit-too-low
+title: Order CPU limit lowered to 40m
+fault_class: resource_misconfiguration
+description: A resources change caps order-service at 40 millicores; requests queue behind CFS throttling.
+fault:
+  type: resources
+  target: order-service
+  resources:
+    cpuLimit: 40m
+    cpuRequest: 20m
+expected:
+  symptoms:
+  - order-service.latency_p95
+  - order-service.cpu_throttling
+  root_cause:
+    categories:
+    - RESOURCE_MISCONFIGURATION
+    component: order-service
+  remediation:
+    optimal:
+    - action: patch_resources
+      target: order-service
+    acceptable:
+    - action: patch_resources
+      target: order-service
+    - action: rollback_deployment
+      target: order-service
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - order-service
+  - api-gateway
+tags:
+- resources
+- cpu
+- throttling
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

@@ -1,0 +1,53 @@
+# Scenario 07: Order release leaks database connections
+id: order-db-connection-leak
+title: Order release leaks database connections
+fault_class: pool_exhaustion
+description: order-service 1.1.0 reconciles inline and leaks a connection on ~8% of orders.
+fault:
+  type: release
+  target: order-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    ORDER_RECONCILE_MODE: inline
+expected:
+  symptoms:
+  - order-service.db_pool_saturation
+  - order-service.error_ratio
+  root_cause:
+    categories:
+    - DB_CONNECTION_EXHAUSTION
+    - BAD_DEPLOYMENT
+    component: order-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: order-service
+    acceptable:
+    - action: rollback_deployment
+      target: order-service
+    - action: rollout_restart
+      target: order-service
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - order-service
+  - api-gateway
+timeouts:
+  detect: 300
+  resolve: 720
+tags:
+- release
+- database
+- leak
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

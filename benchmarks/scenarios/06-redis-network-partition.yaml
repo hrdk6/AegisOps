@@ -1,0 +1,51 @@
+# Scenario 06: Network path to Redis black-holes traffic
+id: redis-network-partition
+title: Network path to Redis black-holes traffic
+fault_class: network
+description: Traffic from order-service and auth-service to Redis is silently dropped (Redis itself is healthy).
+fault:
+  type: network
+  target: redis
+  proxy: redis
+  toxic:
+    type: timeout
+    attributes:
+      timeout: 0
+expected:
+  symptoms:
+  - api-gateway.error_ratio
+  root_cause:
+    categories:
+    - NETWORK_DEGRADATION
+    - DEPENDENCY_FAILURE
+    component: redis
+  remediation:
+    optimal: []
+    acceptable: []
+    prohibited:
+    - action: rollback_deployment
+      target: '*'
+    - action: rollout_restart
+      target: order-service
+    - action: rollout_restart
+      target: auth-service
+    - action: scale_deployment
+      target: redis
+    - action: rollout_restart
+      target: redis
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - escalated
+  detection: required
+verification:
+  services:
+  - auth-service
+  - order-service
+tags:
+- network
+- escalation
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

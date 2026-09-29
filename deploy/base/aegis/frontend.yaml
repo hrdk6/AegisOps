@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-frontend
+  namespace: aegis-system
+  labels: { app: aegis-frontend, app.kubernetes.io/part-of: aegisops }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: aegis-frontend } }
+  template:
+    metadata:
+      labels: { app: aegis-frontend }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: aegis-frontend
+          image: aegisops/frontend:dev
+          ports: [{ name: http, containerPort: 3000 }]
+          env:
+            # Server-side proxy target: the browser only talks to the UI origin (/api/* is proxied).
+            - { name: AEGIS_API_INTERNAL_URL, value: "http://aegis-api.aegis-system.svc:8000" }
+            - { name: NEXT_PUBLIC_GRAFANA_URL, value: "http://localhost:3001" }
+            - { name: NEXT_PUBLIC_JAEGER_URL, value: "http://localhost:16686" }
+          readinessProbe: { httpGet: { path: /login, port: http }, periodSeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { cpu: "1", memory: 384Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: cache, mountPath: /app/.next/cache }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: cache, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: aegis-frontend, namespace: aegis-system }
+spec:
+  type: NodePort
+  selector: { app: aegis-frontend }
+  ports: [{ name: http, port: 3000, targetPort: http, nodePort: 30300 }]

@@ -1,0 +1,59 @@
+# AegisOps state store (incidents, evidence, actions, audit chain, evaluations).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: aegis-postgres-data, namespace: aegis-system }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 2Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-postgres
+  namespace: aegis-system
+  labels: { app: aegis-postgres, app.kubernetes.io/part-of: aegisops }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: aegis-postgres } }
+  template:
+    metadata: { labels: { app: aegis-postgres } }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports: [{ name: pg, containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: aegis }
+            - { name: POSTGRES_DB, value: aegis }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: aegis-db, key: password } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "aegis"] }
+            periodSeconds: 5
+          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { cpu: "1", memory: 384Mi } }
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: aegis-postgres-data }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: aegis-postgres, namespace: aegis-system }
+spec:
+  selector: { app: aegis-postgres }
+  ports: [{ name: pg, port: 5432, targetPort: pg }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: aegis-postgres-ingress, namespace: aegis-system }
+spec:
+  podSelector: { matchLabels: { app: aegis-postgres } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: aegis-api } }
+        - podSelector: { matchLabels: { app: aegis-engine } }
+      ports: [{ protocol: TCP, port: 5432 }]

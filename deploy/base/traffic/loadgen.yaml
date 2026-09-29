@@ -1,0 +1,40 @@
+# Synthetic customers. Runs outside the managed namespace, so AegisOps sees
+# traffic changes only through telemetry, like a real surge.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: traffic
+  labels: { app: loadgen }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: loadgen } }
+  template:
+    metadata:
+      labels: { app: loadgen }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8089" }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: loadgen
+          image: aegisops/shopflow:1.0.0
+          args: [loadgen]
+          ports: [{ name: http, containerPort: 8089 }]
+          env:
+            - { name: PORT, value: "8089" }
+            - { name: TARGET_URL, value: "http://storefront.shop.svc:8080" }
+            - { name: BROWSE_RPS, value: "6" }
+            - { name: CHECKOUT_RPS, value: "3" }
+            - { name: LOGIN_RPS, value: "0.3" }
+            - { name: OTEL_SDK_DISABLED, value: "true" }
+          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { cpu: "1", memory: 256Mi } }
+          readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 5 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: loadgen, namespace: traffic }
+spec:
+  selector: { app: loadgen }
+  ports: [{ name: http, port: 8089, targetPort: http }]

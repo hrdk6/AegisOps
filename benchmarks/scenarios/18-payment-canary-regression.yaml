@@ -1,0 +1,52 @@
+# Scenario 18: Canary release of payment 1.2.0 fails its SLO gate
+id: payment-canary-regression
+title: Canary release of payment 1.2.0 fails its SLO gate
+fault_class: canary
+demo: true
+description: payment-service 1.2.0 is shipped progressively; the canary returns errors and must be aborted.
+fault:
+  type: canary
+  target: payment-service
+  canary:
+    version: 1.2.0
+    image_tag: 1.2.0
+    env:
+      PAYMENT_ROUNDING_MODE: bankers-v2
+    totalReplicas: 4
+expected:
+  detection: optional
+  symptoms:
+  - payment-service.error_ratio
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    component: payment-service
+  remediation:
+    optimal:
+    - action: abort_canary
+      target: '*'
+    acceptable:
+    - action: abort_canary
+      target: '*'
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: rollback_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - auto_mitigated
+  - resolved
+  - no_incident
+  - self_recovered
+verification:
+  services:
+  - payment-service
+tags:
+- canary
+- progressive-delivery
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

@@ -1,0 +1,385 @@
+# ShopFlow application services.
+#
+# Workload metadata contract consumed by AegisOps:
+#   aegisops.io/tier                criticality used by the risk engine
+#   aegisops.io/dependencies        declared dependency edges (verified against traces)
+#   aegisops.io/simulation-profile  sidecar data stores for sandbox simulation (opt-in)
+#   aegisops.io/simulation-probe    request replayed by the sandbox load probe
+# Selectors include `track` so progressive delivery can run canary pods behind
+# the same Service without selector overlap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+  namespace: shop
+  labels: { app: storefront, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: critical
+    aegisops.io/owner: web-team
+    aegisops.io/dependencies: api-gateway
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: storefront, track: stable } }
+  template:
+    metadata:
+      labels: { app: storefront, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: storefront
+          image: aegisops/shopflow:1.0.0
+          args: [storefront]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 25m, memory: 96Mi }, limits: { cpu: 500m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: shop
+  labels: { app: api-gateway, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: critical
+    aegisops.io/owner: platform-edge
+    aegisops.io/dependencies: auth-service,order-service,inventory-service
+    aegisops.io/simulation-profile: ""
+    aegisops.io/simulation-probe: '{"path":"/api/products","method":"GET"}'
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: api-gateway, track: stable } }
+  template:
+    metadata:
+      labels: { app: api-gateway, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: api-gateway
+          image: aegisops/shopflow:1.0.0
+          args: [api-gateway]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - { name: ROUTING_TABLE_VERSION, value: "1" }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 25m, memory: 96Mi }, limits: { cpu: 500m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: shop
+  labels: { app: auth-service, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: critical
+    aegisops.io/owner: identity-team
+    aegisops.io/dependencies: postgres,redis
+    aegisops.io/simulation-profile: postgres,redis
+    aegisops.io/simulation-probe: '{"path":"/verify","method":"POST","body":"{\"token\":\"sandbox-probe\"}"}'
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 1 } }
+  selector: { matchLabels: { app: auth-service, track: stable } }
+  template:
+    metadata:
+      labels: { app: auth-service, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: auth-service
+          image: aegisops/shopflow:1.0.0
+          args: [auth-service]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: shop-db, key: password } }
+            - { name: REDIS_URL, value: "redis://shop-network:16379/0" }
+            - { name: DB_POOL_SIZE, value: "5" }
+            - { name: SESSION_VALIDATION, value: local }
+          envFrom:
+            - configMapRef: { name: shop-common }
+            - configMapRef: { name: auth-config }
+          resources: { requests: { cpu: 25m, memory: 96Mi }, limits: { cpu: 500m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: shop
+  labels: { app: order-service, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: critical
+    aegisops.io/owner: checkout-team
+    aegisops.io/dependencies: inventory-service,payment-service,notification-service,postgres,redis
+    aegisops.io/simulation-profile: postgres,redis
+    aegisops.io/simulation-probe: '{"path":"/orders","method":"POST","body":"{\"items\":[{\"sku\":\"SKU-1\",\"qty\":1}],\"amount\":19.99,\"user\":\"sandbox\"}"}'
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: order-service, track: stable } }
+  template:
+    metadata:
+      labels: { app: order-service, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: order-service
+          image: aegisops/shopflow:1.0.0
+          args: [order-service]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: shop-db, key: password } }
+            # Payment, database and cache traffic traverses the shop-network path.
+            - { name: PAYMENT_SERVICE_URL, value: "http://shop-network:18080" }
+            - { name: DB_HOST, value: shop-network }
+            - { name: DB_PORT, value: "15432" }
+            - { name: REDIS_URL, value: "redis://shop-network:16379/0" }
+            - { name: DB_POOL_SIZE, value: "8" }
+            - { name: ORDER_RECONCILE_MODE, value: async }
+            - { name: ORDER_SYNC_FRAUD_CHECK, value: "false" }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { cpu: 500m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: shop
+  labels: { app: payment-service, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: critical
+    aegisops.io/owner: payments-team
+    aegisops.io/dependencies: postgres
+    aegisops.io/simulation-profile: postgres
+    aegisops.io/simulation-probe: '{"path":"/charge","method":"POST","body":"{\"order_id\":\"sandbox-1\",\"amount\":42.5,\"currency\":\"USD\"}"}'
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: payment-service, track: stable } }
+  template:
+    metadata:
+      labels: { app: payment-service, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: payment-service
+          image: aegisops/shopflow:1.0.0
+          args: [payment-service]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: shop-db, key: password } }
+            - { name: DB_POOL_SIZE, value: "5" }
+            - { name: FRAUD_MODEL, value: gbdt-v1 }
+            - { name: PAYMENT_ROUNDING_MODE, value: half-up }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { cpu: 250m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: shop
+  labels: { app: notification-service, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: standard
+    aegisops.io/owner: growth-team
+    aegisops.io/dependencies: ""
+    aegisops.io/simulation-profile: ""
+    aegisops.io/simulation-probe: '{"path":"/notify","method":"POST","body":"{\"order_id\":\"sandbox-1\",\"user\":\"sandbox\"}"}'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: notification-service, track: stable } }
+  template:
+    metadata:
+      labels: { app: notification-service, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: notification-service
+          image: aegisops/shopflow:1.0.0
+          args: [notification-service]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - { name: TEMPLATE_CACHE, value: lru }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 25m, memory: 96Mi }, limits: { cpu: 250m, memory: 160Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: shop
+  labels: { app: inventory-service, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: standard
+    aegisops.io/owner: catalog-team
+    aegisops.io/dependencies: postgres,redis
+    aegisops.io/simulation-profile: postgres,redis
+    aegisops.io/simulation-probe: '{"path":"/products","method":"GET"}'
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  progressDeadlineSeconds: 90
+  strategy: { rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector: { matchLabels: { app: inventory-service, track: stable } }
+  template:
+    metadata:
+      labels: { app: inventory-service, track: stable, version: "1.0.0" }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8080" }
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: inventory-service
+          image: aegisops/shopflow:1.0.0
+          args: [inventory-service]
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: RELEASE_VERSION, value: "1.0.0" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: shop-db, key: password } }
+            - { name: DB_POOL_SIZE, value: "5" }
+            - { name: CATALOG_CURRENCY, value: USD }
+          envFrom: [{ configMapRef: { name: shop-common } }]
+          resources: { requests: { cpu: 25m, memory: 96Mi }, limits: { cpu: 500m, memory: 192Mi } }
+          readinessProbe: { httpGet: { path: /readyz, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, initialDelaySeconds: 15 }
+          # Graceful drain: let endpoint removal propagate before the process stops.
+          lifecycle: { preStop: { exec: { command: [sleep, "5"] } } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: storefront, namespace: shop }
+spec:
+  type: NodePort
+  selector: { app: storefront }
+  ports: [{ name: http, port: 8080, targetPort: http, nodePort: 30080 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api-gateway, namespace: shop }
+spec:
+  selector: { app: api-gateway }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: auth-service, namespace: shop }
+spec:
+  selector: { app: auth-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: order-service, namespace: shop }
+spec:
+  selector: { app: order-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payment-service, namespace: shop }
+spec:
+  selector: { app: payment-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: notification-service, namespace: shop }
+spec:
+  selector: { app: notification-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: inventory-service, namespace: shop }
+spec:
+  selector: { app: inventory-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]

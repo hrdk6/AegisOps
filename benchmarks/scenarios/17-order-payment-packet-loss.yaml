@@ -1,0 +1,47 @@
+# Scenario 17: Connection resets between order-service and payment-service
+id: order-payment-packet-loss
+title: Connection resets between order-service and payment-service
+fault_class: network
+description: 30% of connections on the order -> payment path are reset by the network.
+fault:
+  type: network
+  target: payment-service
+  proxy: payment
+  toxic:
+    type: reset_peer
+    attributes:
+      timeout: 0
+    toxicity: 0.3
+expected:
+  symptoms:
+  - order-service.error_ratio
+  root_cause:
+    categories:
+    - NETWORK_DEGRADATION
+    component: payment-service
+  remediation:
+    optimal: []
+    acceptable: []
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: rollout_restart
+      target: payment-service
+    - action: scale_deployment
+      target: payment-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - escalated
+  detection: required
+verification:
+  services:
+  - order-service
+tags:
+- network
+- errors
+- escalation
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

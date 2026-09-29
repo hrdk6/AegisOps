@@ -1,0 +1,69 @@
+[project]
+name = "aegis"
+version = "1.0.0"
+description = "AegisOps: AI-assisted, policy-bounded autonomous reliability control plane (API, engine, CLI, evaluation)."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "httpx>=0.28",
+    "prometheus-client>=0.21",
+    "pyjwt>=2.10",
+    "pyyaml>=6.0",
+    "typer>=0.15",
+    "rich>=13.9",
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-exporter-otlp-proto-http>=1.29",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-httpx>=0.50b0",
+]
+
+[project.optional-dependencies]
+chaos = ["kubernetes>=31.0"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "respx>=0.22", "ruff>=0.8", "mypy>=1.13", "types-PyYAML"]
+
+[project.scripts]
+aegis = "aegis.cli.main:app"
+aegis-api = "aegis.api.main:run"
+aegis-engine = "aegis.engine.worker:run"
+aegis-chaos = "aegis.chaos.server:run"
+aegis-migrate = "aegis.db.migrate:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegis"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "SIM"]
+ignore = ["S101", "S311", "B008", "S105", "S106", "E501", "ASYNC109", "UP046", "UP047", "S607", "SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "integration: requires PostgreSQL (AEGIS_TEST_DATABASE_URL)",
+    "e2e: requires the running kind environment",
+]

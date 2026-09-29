@@ -1,0 +1,340 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: remediationactions.aegisops.io
+spec:
+  group: aegisops.io
+  names:
+    categories:
+    - aegisops
+    kind: RemediationAction
+    listKind: RemediationActionList
+    plural: remediationactions
+    shortNames:
+    - ract
+    singular: remediationaction
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.incidentId
+      name: Incident
+      type: string
+    - jsonPath: .spec.actionType
+      name: Action
+      type: string
+    - jsonPath: .spec.target.name
+      name: Target
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.decision.riskLevel
+      name: Risk
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: RemediationAction is a single, policy-gated change requested
+          against the cluster.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RemediationActionSpec is an immutable request to perform
+              exactly one action.
+            properties:
+              actionType:
+                description: |-
+                  ActionType enumerates every action class the control plane knows about.
+                  Known-but-prohibited classes are listed so that attempts are recorded and
+                  explicitly denied rather than silently dropped.
+                enum:
+                - restart_pod
+                - rollout_restart
+                - scale_deployment
+                - rollback_deployment
+                - patch_resources
+                - pause_rollout
+                - resume_rollout
+                - update_config
+                - isolate_pod
+                - apply_network_policy
+                - abort_canary
+                - revert_action
+                - delete_workload
+                - delete_volume
+                - modify_rbac
+                - exec_command
+                - schema_migration
+                type: string
+              diagnosisConfidence:
+                description: |-
+                  DiagnosisConfidence (0-100) as claimed by the requester. It can only make
+                  the policy *more* conservative; it never grants permissions.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
+              incidentId:
+                pattern: ^[A-Za-z0-9-]{1,64}$
+                type: string
+              justification:
+                description: Justification is informational only. It is never interpreted
+                  by the controller.
+                maxLength: 2000
+                type: string
+              parameters:
+                description: |-
+                  ActionParameters is a closed union of typed parameters. Which fields are
+                  permitted depends on the action type; the action registry rejects any field
+                  that the action does not declare. There is deliberately no free-form field:
+                  the schema cannot represent a shell command, a raw manifest or a kubeconfig.
+                properties:
+                  configMap:
+                    maxLength: 253
+                    type: string
+                  configRevision:
+                    maxLength: 64
+                    type: string
+                  container:
+                    maxLength: 63
+                    type: string
+                  networkPolicyTemplate:
+                    enum:
+                    - deny-all-ingress
+                    - allow-same-namespace-only
+                    type: string
+                  replicas:
+                    format: int32
+                    maximum: 50
+                    minimum: 0
+                    type: integer
+                  resources:
+                    description: ResourcePatch is a bounded set of container resource
+                      settings.
+                    properties:
+                      cpuLimit:
+                        type: string
+                      cpuRequest:
+                        type: string
+                      memoryLimit:
+                        type: string
+                      memoryRequest:
+                        type: string
+                    type: object
+                  toRevision:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                type: object
+              preconditions:
+                description: |-
+                  Preconditions pin the target state the proposal was planned against. If the
+                  target changed since planning (for example a new rollout), the action is
+                  denied at admission or fails at execution instead of acting on stale analysis.
+                properties:
+                  expectedRevision:
+                    description: ExpectedRevision is the Deployment rollout revision
+                      observed at planning time.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                type: object
+              requestedBy:
+                description: RequestedBy is stamped by the control-plane API from
+                  the authenticated identity.
+                type: string
+              revertOf:
+                description: RevertOf names the action whose pre-action snapshot a
+                  revert_action restores.
+                type: string
+              simulationRef:
+                description: SimulationRef names a RemediationSimulation whose verdict
+                  the policy may consult.
+                type: string
+              target:
+                description: TargetRef identifies the Kubernetes object an action
+                  operates on.
+                properties:
+                  kind:
+                    enum:
+                    - Deployment
+                    - Pod
+                    - CanaryRelease
+                    type: string
+                  name:
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-.a-z0-9]*[a-z0-9])?$
+                    type: string
+                  namespace:
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                required:
+                - kind
+                - name
+                - namespace
+                type: object
+            required:
+            - actionType
+            - incidentId
+            - requestedBy
+            - target
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
+          status:
+            description: RemediationActionStatus is owned exclusively by the controller.
+            properties:
+              applied:
+                description: |-
+                  Applied is set once the mutation has been sent to the API server. An
+                  Executing action with Applied=false is re-applied after a controller restart.
+                type: boolean
+              approval:
+                description: ApprovalRecord is written only after an HMAC-verified
+                  human decision.
+                properties:
+                  approver:
+                    type: string
+                  decidedAt:
+                    format: date-time
+                    type: string
+                  decision:
+                    enum:
+                    - approved
+                    - rejected
+                    type: string
+                  reason:
+                    type: string
+                  signatureVerified:
+                    type: boolean
+                required:
+                - approver
+                - decidedAt
+                - decision
+                - signatureVerified
+                type: object
+              completedAt:
+                format: date-time
+                type: string
+              decision:
+                description: PolicyDecision is the output of the deterministic policy
+                  engine.
+                properties:
+                  allowed:
+                    type: boolean
+                  checks:
+                    items:
+                      description: PolicyCheck records the outcome of a single deterministic
+                        policy rule.
+                      properties:
+                        detail:
+                          type: string
+                        name:
+                          type: string
+                        passed:
+                          type: boolean
+                      required:
+                      - name
+                      - passed
+                      type: object
+                    type: array
+                  evaluatedAt:
+                    format: date-time
+                    type: string
+                  mode:
+                    type: string
+                  policyGeneration:
+                    format: int64
+                    type: integer
+                  reasons:
+                    items:
+                      type: string
+                    type: array
+                  requiresApproval:
+                    type: boolean
+                  riskLevel:
+                    description: RiskLevel is the deterministic risk classification
+                      assigned by the policy engine.
+                    enum:
+                    - LOW
+                    - MEDIUM
+                    - HIGH
+                    - CRITICAL
+                    type: string
+                  riskScore:
+                    format: int32
+                    type: integer
+                required:
+                - allowed
+                - evaluatedAt
+                - requiresApproval
+                - riskLevel
+                - riskScore
+                type: object
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: ActionPhase is the lifecycle phase of a RemediationAction.
+                type: string
+              revertedBy:
+                type: string
+              snapshot:
+                description: Snapshot captures the pre-action state needed to revert
+                  an action.
+                properties:
+                  data:
+                    type: string
+                  kind:
+                    type: string
+                  reversible:
+                    type: boolean
+                  takenAt:
+                    format: date-time
+                    type: string
+                required:
+                - kind
+                - reversible
+                - takenAt
+                type: object
+              specHash:
+                description: SpecHash binds approvals and simulations to this exact
+                  spec.
+                type: string
+              startedAt:
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

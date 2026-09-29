@@ -1,0 +1,326 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: remediationsimulations.aegisops.io
+spec:
+  group: aegisops.io
+  names:
+    categories:
+    - aegisops
+    kind: RemediationSimulation
+    listKind: RemediationSimulationList
+    plural: remediationsimulations
+    shortNames:
+    - rsim
+    singular: remediationsimulation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.incidentId
+      name: Incident
+      type: string
+    - jsonPath: .spec.target.name
+      name: Target
+      type: string
+    - jsonPath: .spec.proposal.actionType
+      name: Proposal
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.verdict
+      name: Verdict
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: RemediationSimulation is an isolated digital-twin test of a proposed
+          remediation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RemediationSimulationSpec requests an isolated A/B test of
+              a proposed change.
+            properties:
+              incidentId:
+                pattern: ^[A-Za-z0-9-]{1,64}$
+                type: string
+              load:
+                description: |-
+                  LoadProfile is the synthetic workload replayed against baseline and candidate.
+                  Path/Method/Body default to the target's aegisops.io/simulation-probe annotation.
+                properties:
+                  body:
+                    maxLength: 2000
+                    type: string
+                  concurrency:
+                    format: int32
+                    maximum: 32
+                    minimum: 1
+                    type: integer
+                  durationSeconds:
+                    format: int32
+                    maximum: 60
+                    minimum: 5
+                    type: integer
+                  method:
+                    enum:
+                    - GET
+                    - POST
+                    type: string
+                  path:
+                    maxLength: 200
+                    pattern: ^/[A-Za-z0-9/_\-.]*$
+                    type: string
+                  rps:
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                required:
+                - concurrency
+                - durationSeconds
+                - rps
+                type: object
+              proposal:
+                description: SimulationProposal is the change under test.
+                properties:
+                  actionType:
+                    description: |-
+                      ActionType enumerates every action class the control plane knows about.
+                      Known-but-prohibited classes are listed so that attempts are recorded and
+                      explicitly denied rather than silently dropped.
+                    enum:
+                    - restart_pod
+                    - rollout_restart
+                    - scale_deployment
+                    - rollback_deployment
+                    - patch_resources
+                    - pause_rollout
+                    - resume_rollout
+                    - update_config
+                    - isolate_pod
+                    - apply_network_policy
+                    - abort_canary
+                    - revert_action
+                    - delete_workload
+                    - delete_volume
+                    - modify_rbac
+                    - exec_command
+                    - schema_migration
+                    type: string
+                  parameters:
+                    description: |-
+                      ActionParameters is a closed union of typed parameters. Which fields are
+                      permitted depends on the action type; the action registry rejects any field
+                      that the action does not declare. There is deliberately no free-form field:
+                      the schema cannot represent a shell command, a raw manifest or a kubeconfig.
+                    properties:
+                      configMap:
+                        maxLength: 253
+                        type: string
+                      configRevision:
+                        maxLength: 64
+                        type: string
+                      container:
+                        maxLength: 63
+                        type: string
+                      networkPolicyTemplate:
+                        enum:
+                        - deny-all-ingress
+                        - allow-same-namespace-only
+                        type: string
+                      replicas:
+                        format: int32
+                        maximum: 50
+                        minimum: 0
+                        type: integer
+                      resources:
+                        description: ResourcePatch is a bounded set of container resource
+                          settings.
+                        properties:
+                          cpuLimit:
+                            type: string
+                          cpuRequest:
+                            type: string
+                          memoryLimit:
+                            type: string
+                          memoryRequest:
+                            type: string
+                        type: object
+                      toRevision:
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    type: object
+                required:
+                - actionType
+                type: object
+              requestedBy:
+                type: string
+              target:
+                description: TargetRef identifies the Kubernetes object an action
+                  operates on.
+                properties:
+                  kind:
+                    enum:
+                    - Deployment
+                    - Pod
+                    - CanaryRelease
+                    type: string
+                  name:
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-.a-z0-9]*[a-z0-9])?$
+                    type: string
+                  namespace:
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                required:
+                - kind
+                - name
+                - namespace
+                type: object
+            required:
+            - incidentId
+            - load
+            - proposal
+            - requestedBy
+            - target
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
+          status:
+            description: RemediationSimulationStatus is owned by the controller.
+            properties:
+              baseline:
+                description: SimulationMetrics are measured by the in-sandbox load
+                  probe.
+                properties:
+                  cpuMillicores:
+                    type: number
+                  errorRate:
+                    type: number
+                  errors:
+                    format: int64
+                    type: integer
+                  memoryGrowthMb:
+                    type: number
+                  memoryMb:
+                    type: number
+                  p50Ms:
+                    type: number
+                  p95Ms:
+                    type: number
+                  p99Ms:
+                    type: number
+                  requests:
+                    format: int64
+                    type: integer
+                  throughputRps:
+                    type: number
+                required:
+                - cpuMillicores
+                - errorRate
+                - errors
+                - memoryGrowthMb
+                - memoryMb
+                - p50Ms
+                - p95Ms
+                - p99Ms
+                - requests
+                - throughputRps
+                type: object
+              candidate:
+                description: SimulationMetrics are measured by the in-sandbox load
+                  probe.
+                properties:
+                  cpuMillicores:
+                    type: number
+                  errorRate:
+                    type: number
+                  errors:
+                    format: int64
+                    type: integer
+                  memoryGrowthMb:
+                    type: number
+                  memoryMb:
+                    type: number
+                  p50Ms:
+                    type: number
+                  p95Ms:
+                    type: number
+                  p99Ms:
+                    type: number
+                  requests:
+                    format: int64
+                    type: integer
+                  throughputRps:
+                    type: number
+                required:
+                - cpuMillicores
+                - errorRate
+                - errors
+                - memoryGrowthMb
+                - memoryMb
+                - p50Ms
+                - p95Ms
+                - p99Ms
+                - requests
+                - throughputRps
+                type: object
+              completedAt:
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: SimulationPhase is the lifecycle phase of a RemediationSimulation.
+                type: string
+              proposalHash:
+                description: ProposalHash binds this result to (target, actionType,
+                  parameters).
+                type: string
+              reason:
+                type: string
+              sandboxNamespace:
+                type: string
+              startedAt:
+                format: date-time
+                type: string
+              summary:
+                type: string
+              verdict:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,47 @@
+# Scenario 02: Order release adds a synchronous pre-authorization call
+id: order-slow-release
+title: Order release adds a synchronous pre-authorization call
+fault_class: bad_deployment
+description: order-service 1.1.0 performs a 900ms synchronous fraud pre-check.
+fault:
+  type: release
+  target: order-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    ORDER_SYNC_FRAUD_CHECK: 'true'
+expected:
+  symptoms:
+  - order-service.latency_p95
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    component: order-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: order-service
+    acceptable:
+    - action: rollback_deployment
+      target: order-service
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: scale_deployment
+      target: payment-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - order-service
+  - api-gateway
+tags:
+- release
+- latency
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

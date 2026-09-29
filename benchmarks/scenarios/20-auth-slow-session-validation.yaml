@@ -1,0 +1,48 @@
+# Scenario 20: Auth release validates sessions remotely
+id: auth-slow-session-validation
+title: Auth release validates sessions remotely
+fault_class: bad_deployment
+description: auth-service 1.1.0 validates every session with a slow remote call (+600ms).
+fault:
+  type: release
+  target: auth-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    SESSION_VALIDATION: strict-remote
+expected:
+  symptoms:
+  - auth-service.latency_p95
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    component: auth-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: auth-service
+    acceptable:
+    - action: rollback_deployment
+      target: auth-service
+    prohibited:
+    - action: rollback_deployment
+      target: api-gateway
+    - action: scale_deployment
+      target: api-gateway
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - auth-service
+  - api-gateway
+tags:
+- release
+- latency
+- cascade
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

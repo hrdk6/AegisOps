@@ -1,0 +1,36 @@
+# Scenario 15: Single payment pod terminated
+id: payment-pod-kill
+title: Single payment pod terminated
+fault_class: transient
+description: One payment-service pod is deleted; the ReplicaSet replaces it within seconds.
+fault:
+  type: pod_kill
+  target: payment-service
+expected:
+  detection: optional
+  symptoms: []
+  root_cause: null
+  remediation:
+    optimal: []
+    acceptable: []
+    prohibited:
+    - action: '*'
+      target: '*'
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - no_incident
+  - self_recovered
+verification:
+  services:
+  - payment-service
+timeouts:
+  detect: 90
+  resolve: 240
+tags:
+- transient
+- false-positive-control
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

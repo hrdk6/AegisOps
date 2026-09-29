@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Harbor-night operations console. Tokens are RGB triplets for Tailwind alpha support. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: 12 22 28;          /* #0C161C */
+  --panel: 18 31 39;       /* #121F27 */
+  --raised: 24 41 51;      /* #182933 */
+  --line: 36 56 68;        /* #243844 */
+  --ink: 228 236 239;      /* #E4ECEF */
+  --ink2: 167 184 192;     /* #A7B8C0 */
+  --muted: 118 137 147;    /* #768993 */
+  --accent: 63 182 168;    /* verdigris #3FB6A8 */
+  --accent-ink: 5 36 33;
+  --good: 12 163 12;       /* status palette: fixed, always paired with icon + label */
+  --warning: 250 178 25;
+  --serious: 236 131 90;
+  --critical: 208 59 59;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --grid: #22343f;
+  --axis: #3a5160;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: 236 241 243;       /* #ECF1F3 */
+  --panel: 255 255 255;
+  --raised: 244 247 248;
+  --line: 211 221 226;
+  --ink: 12 22 28;
+  --ink2: 60 77 85;
+  --muted: 100 118 127;
+  --accent: 14 124 112;    /* #0E7C70 */
+  --accent-ink: 255 255 255;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --grid: #e1e7ea;
+  --axis: #b9c6cc;
+}
+
+html,
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+}
+
+body {
+  font-size: 14px;
+  line-height: 20px;
+  font-feature-settings: "tnum" 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The one deliberate motion: the live marker on the lifecycle rail. */
+@keyframes rail-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(var(--accent) / 0.55); }
+  100% { box-shadow: 0 0 0 8px rgb(var(--accent) / 0); }
+}
+.rail-live {
+  animation: rail-pulse 1.6s ease-out infinite;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 8px;
+}

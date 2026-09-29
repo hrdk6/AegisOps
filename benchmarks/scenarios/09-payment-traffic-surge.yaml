@@ -1,0 +1,47 @@
+# Scenario 09: Checkout traffic surge saturates payment CPU
+id: payment-traffic-surge
+title: Checkout traffic surge saturates payment CPU
+fault_class: saturation
+description: Checkout traffic rises 8x (marketing campaign); payment-service fraud scoring becomes CPU-bound.
+fault:
+  type: traffic
+  target: payment-service
+  traffic:
+    multiplier: 1.0
+    checkout_multiplier: 8.0
+expected:
+  symptoms:
+  - payment-service.cpu_saturation
+  - payment-service.latency_p95
+  root_cause:
+    categories:
+    - CPU_SATURATION
+    component: payment-service
+  remediation:
+    optimal:
+    - action: scale_deployment
+      target: payment-service
+    acceptable:
+    - action: scale_deployment
+      target: payment-service
+    prohibited:
+    - action: rollback_deployment
+      target: payment-service
+    - action: rollout_restart
+      target: payment-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - payment-service
+tags:
+- traffic
+- cpu
+- scaling
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

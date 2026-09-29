@@ -1,0 +1,52 @@
+# Scenario 11: Notification release with an unbounded template cache
+id: notification-memory-leak-release
+title: Notification release with an unbounded template cache
+fault_class: memory
+description: notification-service 1.1.0 caches rendered templates without eviction.
+fault:
+  type: release
+  target: notification-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    TEMPLATE_CACHE: unbounded
+expected:
+  symptoms:
+  - notification-service.oom_killed
+  - notification-service.memory_pressure
+  root_cause:
+    categories:
+    - MEMORY_EXHAUSTION
+    - BAD_DEPLOYMENT
+    component: notification-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: notification-service
+    acceptable:
+    - action: rollback_deployment
+      target: notification-service
+    - action: rollout_restart
+      target: notification-service
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - notification-service
+timeouts:
+  detect: 240
+  resolve: 720
+tags:
+- release
+- memory
+- oom
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

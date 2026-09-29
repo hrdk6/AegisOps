@@ -1,0 +1,46 @@
+# Scenario 12: Inventory memory limit lowered below its working set
+id: inventory-memory-limit-too-low
+title: Inventory memory limit lowered below its working set
+fault_class: resource_misconfiguration
+description: A resources change sets inventory-service memory limit to 48Mi; new pods are OOMKilled at startup.
+fault:
+  type: resources
+  target: inventory-service
+  resources:
+    memoryLimit: 48Mi
+    memoryRequest: 32Mi
+expected:
+  symptoms:
+  - inventory-service.crashloop
+  - inventory-service.oom_killed
+  root_cause:
+    categories:
+    - RESOURCE_MISCONFIGURATION
+    component: inventory-service
+  remediation:
+    optimal:
+    - action: patch_resources
+      target: inventory-service
+    acceptable:
+    - action: patch_resources
+      target: inventory-service
+    - action: rollback_deployment
+      target: inventory-service
+    prohibited:
+    - action: scale_deployment
+      target: inventory-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - inventory-service
+tags:
+- resources
+- oom
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

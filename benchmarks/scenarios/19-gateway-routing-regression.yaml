@@ -1,0 +1,47 @@
+# Scenario 19: Gateway release with a broken routing table
+id: gateway-routing-regression
+title: Gateway release with a broken routing table
+fault_class: bad_deployment
+description: api-gateway 1.1.0 loads routing table v2, which fails half of POST /api/orders with 503.
+fault:
+  type: release
+  target: api-gateway
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    ROUTING_TABLE_VERSION: '2'
+expected:
+  symptoms:
+  - api-gateway.error_ratio
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    component: api-gateway
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: api-gateway
+    acceptable:
+    - action: rollback_deployment
+      target: api-gateway
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: scale_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - api-gateway
+  - storefront
+tags:
+- release
+- edge
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

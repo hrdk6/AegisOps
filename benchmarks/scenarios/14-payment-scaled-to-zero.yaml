@@ -1,0 +1,45 @@
+# Scenario 14: Payment service scaled to zero
+id: payment-scaled-to-zero
+title: Payment service scaled to zero
+fault_class: dependency_outage
+description: payment-service is scaled to 0 replicas; every checkout fails.
+fault:
+  type: scale
+  target: payment-service
+  replicas: 0
+expected:
+  symptoms:
+  - payment-service.scaled_to_zero
+  - order-service.error_ratio
+  root_cause:
+    categories:
+    - DEPENDENCY_FAILURE
+    component: payment-service
+  remediation:
+    optimal:
+    - action: scale_deployment
+      target: payment-service
+    acceptable:
+    - action: scale_deployment
+      target: payment-service
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: rollout_restart
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - payment-service
+  - order-service
+  - api-gateway
+tags:
+- availability
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

@@ -1,0 +1,38 @@
+# Local environment state: generated secrets, credentials, kubeconfigs. Never commit.
+.aegis-dev/
+.env
+.env.*
+!.env.example
+*.kubeconfig
+kubeconfig*
+*.pem
+*.key
+*.crt
+
+# Python
+**/.venv/
+**/__pycache__/
+*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+*.egg-info/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# Go
+controlplane/bin/
+
+# Benchmark run artifacts (large; publish summaries deliberately, see docs/EVALUATION.md)
+benchmarks/results/*
+!benchmarks/results/.gitkeep
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl

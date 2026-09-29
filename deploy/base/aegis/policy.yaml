@@ -1,0 +1,39 @@
+# The operator-controlled safety envelope. Every action the AI proposes is
+# evaluated against this object by the controller's deterministic policy engine.
+apiVersion: aegisops.io/v1alpha1
+kind: AegisPolicy
+metadata:
+  name: default
+spec:
+  mode: autonomous
+  allowedNamespaces: [shop]
+  protectedWorkloads:
+    - { namespace: shop, name: postgres, mode: deny }
+    - { namespace: shop, name: shop-network, mode: deny }
+    - { namespace: shop, name: redis, mode: approval }
+  autonomyMinConfidence: 70
+  approvalRiskThreshold: MEDIUM
+  allowSimulationAutoApproval: true
+  limits:
+    minReplicas: 1
+    maxReplicas: 6
+    maxScaleUpFactor: 3.0
+    maxCpu: "1"
+    maxMemory: 1Gi
+    maxDisruptionPercent: 50
+  budgets:
+    maxActionsPerIncident: 4
+    maxRevertsPerIncident: 2
+    targetCooldownSeconds: 60
+    globalMaxActionsPerWindow: 12
+    globalWindowSeconds: 600
+    circuitBreaker:
+      failureThreshold: 4
+      windowSeconds: 900
+      openSeconds: 300
+  actionRules:
+    - { actionType: apply_network_policy, requireApproval: true }
+    - { actionType: isolate_pod, requireApproval: true }
+  approvalTtlSeconds: 900
+  executionTimeoutSeconds: 180
+  autoRevertOnFailure: true

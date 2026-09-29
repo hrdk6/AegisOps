@@ -1,0 +1,152 @@
+# ShopFlow data stores and the network path emulator.
+# Secrets (shop-db) are created by scripts/devctl.py and never committed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: shop
+  labels: { app: postgres, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: stateful
+    aegisops.io/owner: data-platform
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: postgres, track: stable } }
+  template:
+    metadata:
+      labels: { app: postgres, track: stable }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args: ["-c", "max_connections=150", "-c", "shared_buffers=32MB"]
+          ports: [{ name: pg, containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: shop }
+            - { name: POSTGRES_DB, value: shop }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: shop-db, key: password } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "shop"] }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 384Mi }
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+      volumes: [{ name: data, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: shop }
+spec:
+  selector: { app: postgres }
+  ports: [{ name: pg, port: 5432, targetPort: pg }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: shop
+  labels: { app: redis, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: stateful
+    aegisops.io/owner: data-platform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis, track: stable } }
+  template:
+    metadata:
+      labels: { app: redis, track: stable }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["--save", "", "--appendonly", "no", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru"]
+          ports: [{ name: redis, containerPort: 6379 }]
+          readinessProbe:
+            tcpSocket: { port: redis }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 96Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: shop }
+spec:
+  selector: { app: redis }
+  ports: [{ name: redis, port: 6379, targetPort: redis }]
+---
+# shop-network emulates the network path between services (shopflow netem, a TCP fault proxy).
+# Faults injected here are indistinguishable from real network degradation to
+# the services at either end. It is protected infrastructure in AegisPolicy.
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: shop-network-config, namespace: shop }
+data:
+  network.json: |
+    [
+      {"name": "payment", "listen": "0.0.0.0:18080", "upstream": "payment-service:8080", "enabled": true},
+      {"name": "postgres", "listen": "0.0.0.0:15432", "upstream": "postgres:5432", "enabled": true},
+      {"name": "redis", "listen": "0.0.0.0:16379", "upstream": "redis:6379", "enabled": true}
+    ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-network
+  namespace: shop
+  labels: { app: shop-network, app.kubernetes.io/part-of: shopflow }
+  annotations:
+    aegisops.io/tier: infrastructure
+    aegisops.io/owner: platform-network
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: shop-network, track: stable } }
+  template:
+    metadata:
+      labels: { app: shop-network, track: stable }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      containers:
+        - name: shop-network
+          image: aegisops/shopflow:1.0.0
+          args: [netem]
+          env:
+            - { name: NETEM_CONFIG, value: /config/network.json }
+          ports:
+            - { name: api, containerPort: 8474 }
+            - { name: payment, containerPort: 18080 }
+            - { name: postgres, containerPort: 15432 }
+            - { name: redis, containerPort: 16379 }
+          readinessProbe:
+            httpGet: { path: /version, port: api }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /version, port: api }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests: { cpu: 20m, memory: 48Mi }
+            limits: { cpu: 500m, memory: 128Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: config, mountPath: /config }]
+      volumes:
+        - name: config
+          configMap: { name: shop-network-config }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: shop-network, namespace: shop }
+spec:
+  selector: { app: shop-network }
+  ports:
+    - { name: api, port: 8474, targetPort: api }
+    - { name: payment, port: 18080, targetPort: payment }
+    - { name: postgres, port: 15432, targetPort: postgres }
+    - { name: redis, port: 16379, targetPort: redis }

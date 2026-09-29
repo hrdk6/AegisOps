@@ -1,0 +1,48 @@
+# Scenario 10: Payment release ships an expensive fraud model
+id: payment-cpu-regression-release
+title: Payment release ships an expensive fraud model
+fault_class: bad_deployment
+description: payment-service 1.1.0 switches to fraud model gbdt-v2 (6x CPU per request).
+fault:
+  type: release
+  target: payment-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    FRAUD_MODEL: gbdt-v2
+expected:
+  symptoms:
+  - payment-service.latency_p95
+  - payment-service.cpu_throttling
+  root_cause:
+    categories:
+    - BAD_DEPLOYMENT
+    - CPU_SATURATION
+    component: payment-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: payment-service
+    acceptable:
+    - action: rollback_deployment
+      target: payment-service
+    - action: scale_deployment
+      target: payment-service
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - payment-service
+tags:
+- release
+- cpu
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

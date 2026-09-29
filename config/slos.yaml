@@ -1,0 +1,21 @@
+# Service level objectives used for detection and verification.
+# Thresholds are deterministic and authoritative: the AI layer never changes them.
+defaults:
+  max_error_ratio: 0.02      # 5xx / all requests over a 30s window
+  p95_ms: 500
+  min_rps: 0.2               # below this, ratio-based signals are not evaluated
+  cpu_util: 0.90             # of CPU limit
+  mem_util: 0.90             # of memory limit
+  throttle_ratio: 0.50       # CFS throttled periods / periods
+
+services:
+  storefront:           { p95_ms: 900, entry: true }
+  api-gateway:          { p95_ms: 800, entry: true }
+  auth-service:         { p95_ms: 250 }
+  order-service:        { p95_ms: 700 }
+  payment-service:      { p95_ms: 300 }
+  notification-service: { p95_ms: 250, max_error_ratio: 0.05 }
+  inventory-service:    { p95_ms: 250 }
+
+# Workloads observed through Kubernetes state only (no HTTP metrics).
+infrastructure: [postgres, redis, shop-network]

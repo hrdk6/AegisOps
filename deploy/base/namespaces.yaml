@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    aegisops.io/managed: "true"
+    # The chaos injector refuses to operate on namespaces without this label.
+    aegisops.io/chaos-enabled: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traffic
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-sandbox
+  labels:
+    aegisops.io/sandbox: "true"
+    pod-security.kubernetes.io/enforce: baseline

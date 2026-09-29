@@ -1,0 +1,49 @@
+# Scenario 04: Broken auth configuration pushed to the ConfigMap
+id: auth-invalid-configmap
+title: Broken auth configuration pushed to the ConfigMap
+fault_class: config_error
+description: auth-config receives truncated JSON and auth-service is restarted to pick it up.
+demo: true
+fault:
+  type: configmap
+  target: auth-service
+  configmap: auth-config
+  data:
+    AUTH_CONFIG: '{"token_ttl_seconds": 3600, "issuer": '
+  restart: true
+expected:
+  symptoms:
+  - auth-service.crashloop
+  - auth-service.unavailable_replicas
+  root_cause:
+    categories:
+    - CONFIG_ERROR
+    component: auth-service
+  remediation:
+    optimal:
+    - action: update_config
+      target: auth-service
+    acceptable:
+    - action: update_config
+      target: auth-service
+    prohibited:
+    - action: scale_deployment
+      target: auth-service
+    - action: rollback_deployment
+      target: api-gateway
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - auth-service
+  - api-gateway
+rollback_conditions: Restore the pre-action ConfigMap snapshot if auth pods still fail readiness.
+tags:
+- configmap
+- crashloop
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'

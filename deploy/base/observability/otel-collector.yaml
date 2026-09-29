@@ -1,0 +1,115 @@
+# Node-local OpenTelemetry Collector:
+#  - logs:   tails container logs from /var/log/pods, parses ShopFlow/AegisOps
+#            JSON lines, attaches trace context and ships to Loki (OTLP).
+#  - traces: receives OTLP from services, tail-samples (all errors, all slow
+#            requests, 30% of the rest) and exports to Jaeger.
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: otel-collector-config, namespace: observability }
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+      filelog:
+        include:
+          - /var/log/pods/shop_*/*/*.log
+          - /var/log/pods/aegis-system_*/*/*.log
+          - /var/log/pods/traffic_*/*/*.log
+        start_at: end
+        include_file_path: true
+        operators:
+          - type: container
+            id: container-parser
+          - type: json_parser
+            id: app-json
+            if: 'body matches "^\\{"'
+            parse_to: attributes
+            on_error: send_quiet
+            severity:
+              parse_from: attributes.level
+              mapping:
+                fatal: [critical, fatal]
+                warn: [warning, warn]
+          - type: trace_parser
+            if: 'attributes.trace_id != nil'
+            trace_id: { parse_from: attributes.trace_id }
+            span_id: { parse_from: attributes.span_id }
+            on_error: send_quiet
+    processors:
+      memory_limiter: { check_interval: 1s, limit_mib: 200, spike_limit_mib: 50 }
+      batch: { timeout: 2s }
+      resource/service-name:
+        attributes:
+          - { key: service.name, from_attribute: k8s.container.name, action: upsert }
+      tail_sampling:
+        decision_wait: 5s
+        num_traces: 20000
+        policies:
+          - { name: errors, type: status_code, status_code: { status_codes: [ERROR] } }
+          - { name: slow, type: latency, latency: { threshold_ms: 400 } }
+          - { name: baseline, type: probabilistic, probabilistic: { sampling_percentage: 30 } }
+    exporters:
+      otlphttp/loki:
+        endpoint: http://loki.observability.svc:3100/otlp
+      otlp/jaeger:
+        endpoint: jaeger.observability.svc:4317
+        tls: { insecure: true }
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs: { level: warn }
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, resource/service-name, batch]
+          exporters: [otlphttp/loki]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, tail_sampling, batch]
+          exporters: [otlp/jaeger]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: { name: otel-collector, namespace: observability, labels: { app: otel-collector } }
+spec:
+  selector: { matchLabels: { app: otel-collector } }
+  template:
+    metadata: { labels: { app: otel-collector } }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.128.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: health, containerPort: 13133 }
+          readinessProbe: { httpGet: { path: /, port: health }, periodSeconds: 5 }
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { cpu: "1", memory: 320Mi } }
+          # Reads root-owned container logs from the node (read-only mount, no capabilities).
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otelcol }
+            - { name: varlogpods, mountPath: /var/log/pods, readOnly: true }
+      volumes:
+        - { name: config, configMap: { name: otel-collector-config } }
+        - { name: varlogpods, hostPath: { path: /var/log/pods } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: otel-collector, namespace: observability }
+spec:
+  selector: { app: otel-collector }
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }

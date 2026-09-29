@@ -1,0 +1,290 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: aegispolicies.aegisops.io
+spec:
+  group: aegisops.io
+  names:
+    categories:
+    - aegisops
+    kind: AegisPolicy
+    listKind: AegisPolicyList
+    plural: aegispolicies
+    shortNames:
+    - apol
+    singular: aegispolicy
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.circuitBreaker.state
+      name: Breaker
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AegisPolicy is the cluster-wide safety policy consulted for every
+          action.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AegisPolicySpec is the operator-controlled safety envelope.
+            properties:
+              actionRules:
+                items:
+                  description: ActionRule overrides registry defaults for one action
+                    type.
+                  properties:
+                    actionType:
+                      description: |-
+                        ActionType enumerates every action class the control plane knows about.
+                        Known-but-prohibited classes are listed so that attempts are recorded and
+                        explicitly denied rather than silently dropped.
+                      enum:
+                      - restart_pod
+                      - rollout_restart
+                      - scale_deployment
+                      - rollback_deployment
+                      - patch_resources
+                      - pause_rollout
+                      - resume_rollout
+                      - update_config
+                      - isolate_pod
+                      - apply_network_policy
+                      - abort_canary
+                      - revert_action
+                      - delete_workload
+                      - delete_volume
+                      - modify_rbac
+                      - exec_command
+                      - schema_migration
+                      type: string
+                    enabled:
+                      type: boolean
+                    minRisk:
+                      description: RiskLevel is the deterministic risk classification
+                        assigned by the policy engine.
+                      enum:
+                      - LOW
+                      - MEDIUM
+                      - HIGH
+                      - CRITICAL
+                      type: string
+                    requireApproval:
+                      type: boolean
+                  required:
+                  - actionType
+                  type: object
+                type: array
+              allowSimulationAutoApproval:
+                description: When true, a MEDIUM-risk action whose simulation verdict
+                  is Improved may run without approval.
+                type: boolean
+              allowedNamespaces:
+                items:
+                  type: string
+                type: array
+              approvalRiskThreshold:
+                description: Risk at or above this level requires approval (unless
+                  simulation-gated).
+                enum:
+                - LOW
+                - MEDIUM
+                - HIGH
+                - CRITICAL
+                type: string
+              approvalTtlSeconds:
+                format: int32
+                minimum: 30
+                type: integer
+              autoRevertOnFailure:
+                description: AutoRevertOnFailure restores the snapshot when execution
+                  fails or times out.
+                type: boolean
+              autonomyMinConfidence:
+                description: Actions below this diagnosis confidence (0-100) require
+                  approval.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
+              budgets:
+                description: PolicyBudgets bound autonomous behaviour to prevent runaway
+                  loops.
+                properties:
+                  circuitBreaker:
+                    description: CircuitBreakerSpec configures the global remediation
+                      circuit breaker.
+                    properties:
+                      failureThreshold:
+                        format: int32
+                        type: integer
+                      openSeconds:
+                        format: int32
+                        type: integer
+                      windowSeconds:
+                        format: int32
+                        type: integer
+                    required:
+                    - failureThreshold
+                    - openSeconds
+                    - windowSeconds
+                    type: object
+                  globalMaxActionsPerWindow:
+                    format: int32
+                    type: integer
+                  globalWindowSeconds:
+                    format: int32
+                    type: integer
+                  maxActionsPerIncident:
+                    format: int32
+                    type: integer
+                  maxRevertsPerIncident:
+                    format: int32
+                    type: integer
+                  targetCooldownSeconds:
+                    format: int32
+                    type: integer
+                required:
+                - circuitBreaker
+                - globalMaxActionsPerWindow
+                - globalWindowSeconds
+                - maxActionsPerIncident
+                - maxRevertsPerIncident
+                - targetCooldownSeconds
+                type: object
+              executionTimeoutSeconds:
+                format: int32
+                minimum: 10
+                type: integer
+              limits:
+                description: PolicyLimits bound the parameters of otherwise-permitted
+                  actions.
+                properties:
+                  maxCpu:
+                    type: string
+                  maxDisruptionPercent:
+                    description: Maximum percent of a workload's pods disrupted by
+                      one action.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxMemory:
+                    type: string
+                  maxReplicas:
+                    format: int32
+                    maximum: 50
+                    type: integer
+                  maxScaleUpFactor:
+                    description: Maximum multiplicative scale-up in a single action
+                      (e.g. 3.0).
+                    type: number
+                  minReplicas:
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - maxCpu
+                - maxDisruptionPercent
+                - maxMemory
+                - maxReplicas
+                - maxScaleUpFactor
+                - minReplicas
+                type: object
+              mode:
+                enum:
+                - autonomous
+                - supervised
+                - observe
+                type: string
+              protectedWorkloads:
+                items:
+                  description: ProtectedWorkload marks a workload that automation
+                    must not touch freely.
+                  properties:
+                    mode:
+                      enum:
+                      - deny
+                      - approval
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - mode
+                  - name
+                  - namespace
+                  type: object
+                type: array
+            required:
+            - allowSimulationAutoApproval
+            - allowedNamespaces
+            - approvalRiskThreshold
+            - approvalTtlSeconds
+            - autoRevertOnFailure
+            - autonomyMinConfidence
+            - budgets
+            - executionTimeoutSeconds
+            - limits
+            - mode
+            type: object
+          status:
+            description: AegisPolicyStatus is owned by the controller.
+            properties:
+              circuitBreaker:
+                description: CircuitBreakerStatus reports the derived breaker state.
+                properties:
+                  openedAt:
+                    format: date-time
+                    type: string
+                  reason:
+                    type: string
+                  recentFailures:
+                    format: int32
+                    type: integer
+                  state:
+                    type: string
+                required:
+                - recentFailures
+                - state
+                type: object
+              lastUpdated:
+                format: date-time
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,47 @@
+# Scenario 08: Network latency between order-service and PostgreSQL
+id: order-db-network-latency
+title: Network latency between order-service and PostgreSQL
+fault_class: network
+description: The network path from order-service to PostgreSQL adds ~350ms per round trip; the database is healthy.
+fault:
+  type: network
+  target: postgres
+  proxy: postgres
+  toxic:
+    type: latency
+    attributes:
+      latency: 350
+      jitter: 50
+expected:
+  symptoms:
+  - order-service.latency_p95
+  root_cause:
+    categories:
+    - NETWORK_DEGRADATION
+    component: postgres
+  remediation:
+    optimal: []
+    acceptable: []
+    prohibited:
+    - action: rollback_deployment
+      target: order-service
+    - action: rollout_restart
+      target: order-service
+    - action: scale_deployment
+      target: order-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - escalated
+  detection: required
+verification:
+  services:
+  - order-service
+tags:
+- network
+- database
+- escalation
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

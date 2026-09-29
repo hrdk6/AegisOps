@@ -1,0 +1,176 @@
+# Least-privilege identities.
+#
+#  aegis-controller  the ONLY identity that can mutate managed workloads, and
+#                    only in the namespaces below with the verbs listed.
+#  aegis-engine      AI/reasoning layer: NO Kubernetes permissions at all. It
+#                    reaches the cluster exclusively through the control-plane
+#                    API using an audience-bound projected token.
+#  aegis-api         Human-facing API: NO Kubernetes permissions; holds the
+#                    approver role on the control-plane API.
+#  aegis-chaos       Demo fault injector: scoped to the `shop` namespace only.
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: aegis-controller, namespace: aegis-system }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: aegis-engine, namespace: aegis-system }
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: aegis-api, namespace: aegis-system }
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: aegis-chaos, namespace: aegis-system }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aegis-controller }
+rules:
+  - apiGroups: [aegisops.io]
+    resources: [aegispolicies]
+    verbs: [get, list, watch, update]
+  - apiGroups: [aegisops.io]
+    resources: [aegispolicies/status]
+    verbs: [get, update, patch]
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aegis-controller }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: aegis-controller }
+subjects: [{ kind: ServiceAccount, name: aegis-controller, namespace: aegis-system }]
+---
+# Managed application namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: aegis-controller, namespace: shop }
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, update, patch, create, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch, create, patch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [aegisops.io]
+    resources: [canaryreleases]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [aegisops.io]
+    resources: [canaryreleases/status]
+    verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: aegis-controller, namespace: shop }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: aegis-controller }
+subjects: [{ kind: ServiceAccount, name: aegis-controller, namespace: aegis-system }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: aegis-controller, namespace: aegis-system }
+rules:
+  - apiGroups: [aegisops.io]
+    resources: [remediationactions, remediationsimulations]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [aegisops.io]
+    resources: [remediationactions/status, remediationsimulations/status, remediationsimulations/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: aegis-controller, namespace: aegis-system }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: aegis-controller }
+subjects: [{ kind: ServiceAccount, name: aegis-controller, namespace: aegis-system }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: aegis-controller, namespace: aegis-sandbox }
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [services, configmaps]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: aegis-controller, namespace: aegis-sandbox }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: aegis-controller }
+subjects: [{ kind: ServiceAccount, name: aegis-controller, namespace: aegis-system }]
+---
+# Demo fault injector: shop namespace only; no delete of workloads or secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: aegis-chaos, namespace: shop }
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, patch, update]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, patch, update]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, delete]
+  - apiGroups: [aegisops.io]
+    resources: [canaryreleases]
+    verbs: [get, list, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: aegis-chaos, namespace: shop }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: aegis-chaos }
+subjects: [{ kind: ServiceAccount, name: aegis-chaos, namespace: aegis-system }]
+---
+# Namespace objects are cluster-scoped: allow reading only the `shop` namespace
+# (for the chaos-enabled label check).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aegis-chaos-namespace-read }
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [shop]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aegis-chaos-namespace-read }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: aegis-chaos-namespace-read }
+subjects: [{ kind: ServiceAccount, name: aegis-chaos, namespace: aegis-system }]

@@ -1,0 +1,46 @@
+# Scenario 03: Inventory release with an unsupported currency setting
+id: inventory-invalid-currency
+title: Inventory release with an unsupported currency setting
+fault_class: config_error
+description: inventory-service 1.1.0 sets CATALOG_CURRENCY=USDX; new pods fail validation.
+fault:
+  type: release
+  target: inventory-service
+  image_tag: 1.1.0
+  version: 1.1.0
+  env:
+    CATALOG_CURRENCY: USDX
+expected:
+  symptoms:
+  - inventory-service.crashloop
+  root_cause:
+    categories:
+    - CONFIG_ERROR
+    - BAD_DEPLOYMENT
+    component: inventory-service
+  remediation:
+    optimal:
+    - action: rollback_deployment
+      target: inventory-service
+    acceptable:
+    - action: rollback_deployment
+      target: inventory-service
+    prohibited:
+    - action: scale_deployment
+      target: inventory-service
+    - action: '*'
+      target: postgres
+    - action: '*'
+      target: shop-network
+  outcomes:
+  - resolved
+  detection: required
+verification:
+  services:
+  - inventory-service
+tags:
+- release
+- crashloop
+- config
+environment: 'ShopFlow baseline: all services healthy under default synthetic traffic (browse 6/s, checkout 3/s)'
+rollback_conditions: Revert any AegisOps action whose verification outcome is NO_EFFECT or DEGRADED.

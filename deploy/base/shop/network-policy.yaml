@@ -1,0 +1,19 @@
+# Production side of the sandbox boundary. The sandbox namespace also carries a default-deny
+# *egress* policy, but some CNIs (including the kindnet bundled with kind v0.30) enforce only
+# ingress policies; this ingress rule keeps simulation clones away from real services either way.
+# Verified on kind: sandbox pods time out; shop, other namespaces, kubelet probes and NodePort
+# clients are unaffected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: deny-from-sandbox, namespace: shop }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - { key: kubernetes.io/metadata.name, operator: NotIn, values: [aegis-sandbox] }
+        # Non-pod sources such as NodePort clients. The pod network (kind default 10.244.0.0/16;
+        # adjust for other clusters) is excluded so sandbox pods cannot match this rule.
+        - ipBlock: { cidr: 0.0.0.0/0, except: [10.244.0.0/16] }
